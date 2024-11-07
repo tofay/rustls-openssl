@@ -197,7 +197,7 @@ fn test_with_custom_config_to_internet(
 )]
 #[cfg_attr(
     feature = "chacha",
-    case::TLS13_CHACHA20_POLY1305_SHA256(
+    case::tls13_chacha20_poly1305_sha256(
         TLS13_CHACHA20_POLY1305_SHA256,
         SECP256R1,
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
@@ -215,7 +215,7 @@ fn test_with_custom_config_to_internet(
 )]
 #[cfg_attr(
     feature = "x25519",
-    case::TLS13_AES_256_GCM_SHA384(
+    case::tls13_aes_256_gcm_sha384(
         TLS13_AES_256_GCM_SHA384,
         rustls_openssl::X25519,
         CipherSuite::TLS13_AES_256_GCM_SHA384
