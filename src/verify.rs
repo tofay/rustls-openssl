@@ -11,31 +11,31 @@ use rustls::pki_types::{AlgorithmIdentifier, InvalidSignature, SignatureVerifica
 use webpki::alg_id;
 
 /// RSA PKCS#1 1.5 signatures using SHA-256 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA256: &dyn SignatureVerificationAlgorithm = &MyAlgorithm {
+pub static RSA_PKCS1_2048_8192_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA256,
-    range: 2048..=8192,
+    range: Some(2048..=8192),
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-384 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA384: &dyn SignatureVerificationAlgorithm = &MyAlgorithm {
+pub static RSA_PKCS1_2048_8192_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA384,
-    range: 2048..=8192,
+    range: Some(2048..=8192),
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-512 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA512: &dyn SignatureVerificationAlgorithm = &MyAlgorithm {
+pub static RSA_PKCS1_2048_8192_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA512,
-    range: 2048..=8192,
+    range: Some(2048..=8192),
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-384 for keys of 3072-8192 bits.
-pub static RSA_PKCS1_3072_8192_SHA384: &dyn SignatureVerificationAlgorithm = &MyAlgorithm {
+pub static RSA_PKCS1_3072_8192_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA384,
-    range: 3072..=8192,
+    range: Some(3072..=8192),
 };
 
 /// RSA PSS signatures using SHA-256 for keys of 2048-8192 bits and of
@@ -43,10 +43,10 @@ pub static RSA_PKCS1_3072_8192_SHA384: &dyn SignatureVerificationAlgorithm = &My
 ///
 /// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
 pub static RSA_PSS_2048_8192_SHA256_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &MyAlgorithm {
+    &OpenSslAlgorithm {
         public_key_alg_id: alg_id::RSA_ENCRYPTION,
         signature_alg_id: alg_id::RSA_PSS_SHA256,
-        range: 2048..=8192,
+        range: Some(2048..=8192),
     };
 
 /// RSA PSS signatures using SHA-384 for keys of 2048-8192 bits and of
@@ -54,10 +54,10 @@ pub static RSA_PSS_2048_8192_SHA256_LEGACY_KEY: &dyn SignatureVerificationAlgori
 ///
 /// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
 pub static RSA_PSS_2048_8192_SHA384_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &MyAlgorithm {
+    &OpenSslAlgorithm {
         public_key_alg_id: alg_id::RSA_ENCRYPTION,
         signature_alg_id: alg_id::RSA_PSS_SHA384,
-        range: 2048..=8192,
+        range: Some(2048..=8192),
     };
 
 /// RSA PSS signatures using SHA-512 for keys of 2048-8192 bits and of
@@ -65,28 +65,35 @@ pub static RSA_PSS_2048_8192_SHA384_LEGACY_KEY: &dyn SignatureVerificationAlgori
 ///
 /// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
 pub static RSA_PSS_2048_8192_SHA512_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &MyAlgorithm {
+    &OpenSslAlgorithm {
         public_key_alg_id: alg_id::RSA_ENCRYPTION,
         signature_alg_id: alg_id::RSA_PSS_SHA512,
-        range: 2048..=8192,
+        range: Some(2048..=8192),
     };
 
-struct MyAlgorithm {
+/// ED25519 signatures according to RFC 8410
+pub static ED25519: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ED25519,
+    signature_alg_id: alg_id::ED25519,
+    range: None,
+};
+
+struct OpenSslAlgorithm {
     public_key_alg_id: AlgorithmIdentifier,
     signature_alg_id: AlgorithmIdentifier,
-    range: RangeInclusive<u32>, //verification_alg: &'static dyn signature::VerificationAlgorithm,
+    range: Option<RangeInclusive<u32>>,
 }
 
-impl fmt::Debug for MyAlgorithm {
+impl fmt::Debug for OpenSslAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MyAlgorithm")
+        f.debug_struct("OpensslAlgorithm")
             .field("public_key_alg_id", &self.public_key_alg_id)
             .field("signature_alg_id", &self.signature_alg_id)
             .finish()
     }
 }
 
-impl MyAlgorithm {
+impl OpenSslAlgorithm {
     fn public_key(&self, public_key: &[u8]) -> Result<PKey<Public>, InvalidSignature> {
         match self.public_key_alg_id {
             alg_id::RSA_ENCRYPTION => Rsa::public_key_from_der_pkcs1(public_key)
@@ -96,15 +103,15 @@ impl MyAlgorithm {
         }
     }
 
-    fn message_digest(&self) -> Result<MessageDigest, InvalidSignature> {
+    fn message_digest(&self) -> Option<MessageDigest> {
         match self.signature_alg_id {
-            alg_id::RSA_PKCS1_SHA256 => Ok(MessageDigest::sha256()),
-            alg_id::RSA_PKCS1_SHA384 => Ok(MessageDigest::sha384()),
-            alg_id::RSA_PKCS1_SHA512 => Ok(MessageDigest::sha512()),
-            alg_id::RSA_PSS_SHA256 => Ok(MessageDigest::sha256()),
-            alg_id::RSA_PSS_SHA384 => Ok(MessageDigest::sha384()),
-            alg_id::RSA_PSS_SHA512 => Ok(MessageDigest::sha512()),
-            _ => Err(InvalidSignature),
+            alg_id::RSA_PKCS1_SHA256 => Some(MessageDigest::sha256()),
+            alg_id::RSA_PKCS1_SHA384 => Some(MessageDigest::sha384()),
+            alg_id::RSA_PKCS1_SHA512 => Some(MessageDigest::sha512()),
+            alg_id::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
+            alg_id::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
+            alg_id::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
+            _ => None,
         }
     }
 
@@ -139,7 +146,7 @@ impl MyAlgorithm {
     }
 }
 
-impl SignatureVerificationAlgorithm for MyAlgorithm {
+impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
     fn public_key_alg_id(&self) -> AlgorithmIdentifier {
         self.public_key_alg_id
     }
@@ -176,13 +183,17 @@ impl SignatureVerificationAlgorithm for MyAlgorithm {
         let pkey = self.public_key(public_key)?;
 
         // Check the length is in the range.
-        if !self.range.contains(&pkey.bits()) {
+        if !self
+            .range
+            .as_ref()
+            .map(|range| range.contains(&pkey.bits()))
+            .unwrap_or(true)
+        {
             return Err(InvalidSignature);
         }
 
-        let message_digest = self.message_digest()?;
-        Verifier::new(message_digest, &pkey)
-            .and_then(|mut verifier| {
+        if let Some(message_digest) = self.message_digest() {
+            Verifier::new(message_digest, &pkey).and_then(|mut verifier| {
                 if let Some(padding) = self.rsa_padding() {
                     verifier.set_rsa_padding(padding)?;
                 }
@@ -193,9 +204,13 @@ impl SignatureVerificationAlgorithm for MyAlgorithm {
                     verifier.set_rsa_pss_saltlen(salt_len)?;
                 }
                 verifier.update(message)?;
-                verifier.verify(signature)?;
-                Ok(())
+                verifier.verify(signature)
             })
-            .map_err(|_| InvalidSignature)
+        } else {
+            Verifier::new_without_digest(&pkey)
+                .and_then(|mut verifier| verifier.verify_oneshot(signature, message))
+        }
+        .map_err(|_| InvalidSignature)
+        .and_then(|valid| if valid { Ok(()) } else { Err(InvalidSignature) })
     }
 }

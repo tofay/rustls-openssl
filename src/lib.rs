@@ -271,6 +271,7 @@ static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
         // webpki_algs::ECDSA_P256_SHA384,
         // webpki_algs::ECDSA_P384_SHA256,
         // webpki_algs::ECDSA_P384_SHA384,
+        verify::ED25519,
         verify::RSA_PSS_2048_8192_SHA256_LEGACY_KEY,
         verify::RSA_PSS_2048_8192_SHA384_LEGACY_KEY,
         verify::RSA_PSS_2048_8192_SHA512_LEGACY_KEY,
@@ -295,6 +296,7 @@ static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
         //         webpki_algs::ECDSA_P384_SHA256,
         //     ],
         // ),
+        (SignatureScheme::ED25519, &[verify::ED25519]),
         (
             SignatureScheme::RSA_PSS_SHA512,
             &[verify::RSA_PSS_2048_8192_SHA512_LEGACY_KEY],
