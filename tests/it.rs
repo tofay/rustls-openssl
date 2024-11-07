@@ -33,8 +33,11 @@ static OPENSSL_SERVER_PROCESS: OnceCell<Option<Child>> = OnceCell::new();
 fn maybe_start_openssl_server() {
     OPENSSL_SERVER_PROCESS.get_or_init(|| {
         if TcpStream::connect(format!("localhost:{}", PORT)).is_ok() {
+            eprintln!("Server already running");
             return None;
         }
+
+        eprintln!("Starting openssl server...");
 
         // Spawn openssl server
         // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
