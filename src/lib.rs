@@ -265,12 +265,15 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
+// TODO implement ECDSA verification. For now reuse webpki's ring implementation.
+use webpki::ring as webpki_algs;
+
 static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
     all: &[
-        // webpki_algs::ECDSA_P256_SHA256,
-        // webpki_algs::ECDSA_P256_SHA384,
-        // webpki_algs::ECDSA_P384_SHA256,
-        // webpki_algs::ECDSA_P384_SHA384,
+        webpki_algs::ECDSA_P256_SHA256,
+        webpki_algs::ECDSA_P256_SHA384,
+        webpki_algs::ECDSA_P384_SHA256,
+        webpki_algs::ECDSA_P384_SHA384,
         verify::ED25519,
         verify::RSA_PSS_2048_8192_SHA256_LEGACY_KEY,
         verify::RSA_PSS_2048_8192_SHA384_LEGACY_KEY,
@@ -281,21 +284,21 @@ static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms
         verify::RSA_PKCS1_3072_8192_SHA384,
     ],
     mapping: &[
-        // Note: for TLS1.2 the curve is not fixed by SignatureScheme. For TLS1.3 it is.
-        // (
-        //     SignatureScheme::ECDSA_NISTP384_SHA384,
-        //     &[
-        //         webpki_algs::ECDSA_P384_SHA384,
-        //         webpki_algs::ECDSA_P256_SHA384,
-        //     ],
-        // ),
-        // (
-        //     SignatureScheme::ECDSA_NISTP256_SHA256,
-        //     &[
-        //         webpki_algs::ECDSA_P256_SHA256,
-        //         webpki_algs::ECDSA_P384_SHA256,
-        //     ],
-        // ),
+        //Note: for TLS1.2 the curve is not fixed by SignatureScheme. For TLS1.3 it is.
+        (
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            &[
+                webpki_algs::ECDSA_P384_SHA384,
+                webpki_algs::ECDSA_P256_SHA384,
+            ],
+        ),
+        (
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            &[
+                webpki_algs::ECDSA_P256_SHA256,
+                webpki_algs::ECDSA_P384_SHA256,
+            ],
+        ),
         (SignatureScheme::ED25519, &[verify::ED25519]),
         (
             SignatureScheme::RSA_PSS_SHA512,

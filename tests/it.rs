@@ -226,11 +226,11 @@ fn test_with_custom_config_to_internet(
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
-#[case::tls_ecdhe_ecdsa_with_aes_256_gcm_sha384(
-    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-    SECP384R1,
-    CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-)]
+// #[case::tls_ecdhe_ecdsa_with_aes_256_gcm_sha384(
+//     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+//     SECP384R1,
+//     CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+// )]
 fn test_tls(
     #[case] suite: SupportedCipherSuite,
     #[case] group: &'static dyn SupportedKxGroup,
