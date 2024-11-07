@@ -1,13 +1,6 @@
-/// Integration tests, based on rustls-symcrypt integration tests
-use std::env;
-use std::fs::File;
-use std::io::{BufReader, Read, Write};
-use std::net::TcpStream;
-use std::path::PathBuf;
-use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
-use std::thread;
+//! Integration tests, based on rustls-symcrypt integration tests
 
+use once_cell::sync::OnceCell;
 use rstest::rstest;
 use rustls::crypto::SupportedKxGroup;
 use rustls::{CipherSuite, SupportedCipherSuite};
@@ -18,6 +11,13 @@ use rustls_openssl::{
 };
 #[cfg(feature = "chacha")]
 use rustls_openssl::{TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256};
+use std::env;
+use std::fs::File;
+use std::io::{BufReader, Read, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
+use std::process::{Child, Command};
+use std::sync::Arc;
 
 static TEST_CERT_PATH: once_cell::sync::Lazy<PathBuf> = once_cell::sync::Lazy::new(|| {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -26,39 +26,46 @@ static TEST_CERT_PATH: once_cell::sync::Lazy<PathBuf> = once_cell::sync::Lazy::n
     path
 });
 
-// Note: must run with feature flags enabled Ie:
-// cargo test --features x25519,chacha
+const PORT: u32 = 4443;
 
-// Make test function that accepts an array for both
+static OPENSSL_SERVER_PROCESS: OnceCell<Option<Child>> = OnceCell::new();
 
-// Test assumes user has openssl on the machine and is in the PATH.
-fn start_openssl_server() -> Child {
-    // Spawn openssl server
-    // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
+fn maybe_start_openssl_server() {
+    OPENSSL_SERVER_PROCESS.get_or_init(|| {
+        if TcpStream::connect(format!("localhost:{}", PORT)).is_ok() {
+            return None;
+        }
 
-    let cert_path = TEST_CERT_PATH
-        .join("localhost.pem")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let key_path = TEST_CERT_PATH
-        .join("localhost.key")
-        .into_os_string()
-        .into_string()
-        .unwrap();
+        // Spawn openssl server
+        // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
 
-    Command::new("openssl")
-        .arg("s_server")
-        .arg("-accept")
-        .arg("4443")
-        .arg("-cert")
-        .arg(cert_path)
-        .arg("-key")
-        .arg(key_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("Failed to start OpenSSL server.")
+        let cert_path = TEST_CERT_PATH
+            .join("localhost.pem")
+            .into_os_string()
+            .into_string()
+            .unwrap();
+        let key_path = TEST_CERT_PATH
+            .join("localhost.key")
+            .into_os_string()
+            .into_string()
+            .unwrap();
+
+        let child = Command::new("openssl")
+            .arg("s_server")
+            .arg("-accept")
+            .arg(PORT.to_string())
+            .arg("-cert")
+            .arg(cert_path)
+            .arg("-key")
+            .arg(key_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("Failed to start OpenSSL server.");
+        // sleep for 1 second to allow the server to start
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        Some(child)
+    });
 }
 
 fn test_with_config(
@@ -96,7 +103,7 @@ fn test_with_config(
 
     let server_name = "localhost".try_into().unwrap();
 
-    let mut sock = TcpStream::connect("localhost:4443").unwrap();
+    let mut sock = TcpStream::connect(format!("localhost:{}", PORT)).unwrap();
 
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
@@ -114,10 +121,10 @@ fn test_with_config(
 
     let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
 
-    let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "Q" is a single byte command
-    exit_buffer[0] = b'Q'; // Assign the ASCII value of "Q" to the buffer
+    let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "q" is a single byte command
+    exit_buffer[0] = b'q'; // Assign the ASCII value of "q" to the buffer
 
-    // Write the "Q" command to the TLS connection stream
+    // Write the "q" command to the TLS connection stream
     tls.write_all(&exit_buffer).unwrap();
     ciphersuite.suite()
 }
@@ -168,7 +175,7 @@ fn test_with_custom_config_to_internet(
     let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
 
     let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "Q" is a single byte command
-    exit_buffer[0] = b'Q'; // Assign the ASCII value of "Q" to the buffer
+    exit_buffer[0] = b'q'; // Assign the ASCII value of "Q" to the buffer
 
     // Write the "Q" command to the TLS connection stream
     tls.write_all(&exit_buffer).unwrap();
@@ -227,23 +234,9 @@ fn test_tls(
     #[case] group: &'static dyn SupportedKxGroup,
     #[case] expected: CipherSuite,
 ) {
-    let server_thread = {
-        let openssl_server = Arc::new(Mutex::new(start_openssl_server()));
-        thread::spawn(move || {
-            openssl_server
-                .lock()
-                .unwrap()
-                .wait()
-                .expect("OpenSSL server crashed unexpectedly");
-        })
-    };
-
-    // Wait for the server to start
-    thread::sleep(std::time::Duration::from_secs(1));
-
+    maybe_start_openssl_server();
     let actual_suite = test_with_config(suite, group);
     assert_eq!(actual_suite, expected);
-    drop(server_thread);
 }
 
 #[rstest]
@@ -271,21 +264,7 @@ fn test_to_internet(
 
 #[test]
 fn test_default_client() {
-    // Spawn a concurrent thread that starts the server
-    let server_thread = {
-        let openssl_server = Arc::new(Mutex::new(start_openssl_server()));
-        thread::spawn(move || {
-            openssl_server
-                .lock()
-                .unwrap()
-                .wait()
-                .expect("OpenSSL server crashed unexpectedly");
-        })
-    };
-
-    // Wait for the server to start
-    thread::sleep(std::time::Duration::from_secs(1));
-
+    maybe_start_openssl_server();
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -311,7 +290,7 @@ fn test_default_client() {
 
     let server_name = "localhost".try_into().unwrap();
 
-    let mut sock = TcpStream::connect("localhost:4443").unwrap();
+    let mut sock = TcpStream::connect(format!("localhost:{}", PORT)).unwrap();
 
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
@@ -329,12 +308,8 @@ fn test_default_client() {
 
     let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
 
-    let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "Q" is a single byte command
-    exit_buffer[0] = b'Q'; // Assign the ASCII value of "Q" to the buffer
-
-    // Write the "Q" command to the TLS connection stream
+    let exit_buffer: [u8; 1] = [b'q'];
     tls.write_all(&exit_buffer).unwrap();
 
     assert_eq!(ciphersuite.suite(), CipherSuite::TLS13_AES_256_GCM_SHA384);
-    drop(server_thread);
 }
