@@ -196,6 +196,6 @@ impl SignatureVerificationAlgorithm for MyAlgorithm {
                 verifier.verify(signature)?;
                 Ok(())
             })
-            .map_err(|e| InvalidSignature)
+            .map_err(|_| InvalidSignature)
     }
 }
