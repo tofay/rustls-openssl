@@ -1,6 +1,5 @@
 //! Integration tests, based on rustls-symcrypt integration tests
 
-use once_cell::sync::OnceCell;
 use rstest::rstest;
 use rustls::crypto::SupportedKxGroup;
 use rustls::{CipherSuite, SupportedCipherSuite};
@@ -26,49 +25,49 @@ static TEST_CERT_PATH: once_cell::sync::Lazy<PathBuf> = once_cell::sync::Lazy::n
     path
 });
 
+static OPENSSL_SERVER_PROCESS: once_cell::sync::Lazy<antidote::Mutex<Option<Child>>> =
+    once_cell::sync::Lazy::new(|| antidote::Mutex::new(maybe_start_server()));
+
 const PORT: u32 = 4443;
 
-static OPENSSL_SERVER_PROCESS: OnceCell<Option<Child>> = OnceCell::new();
+fn maybe_start_server() -> Option<Child> {
+    if TcpStream::connect(format!("localhost:{}", PORT)).is_ok() {
+        eprintln!("Server already running");
+        return None;
+    }
 
-fn maybe_start_openssl_server() {
-    OPENSSL_SERVER_PROCESS.get_or_init(|| {
-        if TcpStream::connect(format!("localhost:{}", PORT)).is_ok() {
-            eprintln!("Server already running");
-            return None;
-        }
+    eprintln!("Starting openssl server...");
 
-        eprintln!("Starting openssl server...");
+    // Spawn openssl server
+    // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
 
-        // Spawn openssl server
-        // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
+    let cert_path = TEST_CERT_PATH
+        .join("localhost.pem")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let key_path = TEST_CERT_PATH
+        .join("localhost.key")
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
-        let cert_path = TEST_CERT_PATH
-            .join("localhost.pem")
-            .into_os_string()
-            .into_string()
-            .unwrap();
-        let key_path = TEST_CERT_PATH
-            .join("localhost.key")
-            .into_os_string()
-            .into_string()
-            .unwrap();
-
-        let child = Command::new("openssl")
-            .arg("s_server")
-            .arg("-accept")
-            .arg(PORT.to_string())
-            .arg("-cert")
-            .arg(cert_path)
-            .arg("-key")
-            .arg(key_path)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("Failed to start OpenSSL server.");
-        // sleep for 1 second to allow the server to start
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        Some(child)
-    });
+    let child = Command::new("openssl")
+        .arg("s_server")
+        .arg("-accept")
+        .arg(PORT.to_string())
+        .arg("-cert")
+        .arg(cert_path)
+        .arg("-key")
+        .arg(key_path)
+        .arg("-quiet")
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .expect("Failed to start OpenSSL server.");
+    // sleep to allow the server to start
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    Some(child)
 }
 
 fn test_with_config(
@@ -237,9 +236,10 @@ fn test_tls(
     #[case] group: &'static dyn SupportedKxGroup,
     #[case] expected: CipherSuite,
 ) {
-    maybe_start_openssl_server();
+    let lock = OPENSSL_SERVER_PROCESS.lock();
     let actual_suite = test_with_config(suite, group);
     assert_eq!(actual_suite, expected);
+    drop(lock);
 }
 
 #[rstest]
@@ -267,7 +267,7 @@ fn test_to_internet(
 
 #[test]
 fn test_default_client() {
-    maybe_start_openssl_server();
+    let lock = OPENSSL_SERVER_PROCESS.lock();
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -315,4 +315,5 @@ fn test_default_client() {
     tls.write_all(&exit_buffer).unwrap();
 
     assert_eq!(ciphersuite.suite(), CipherSuite::TLS13_AES_256_GCM_SHA384);
+    drop(lock);
 }
