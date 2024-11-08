@@ -1,7 +1,7 @@
 [package]
 name = "rustls-openssl"
 authors = ["Tom Fay <tom@teamfay.co.uk>"]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
 description = "Rustls crypto provider for OpenSSL"
@@ -15,7 +15,7 @@ rustls = { version = "0.23.0", features = [
     "tls12",
     "std",
 ], default-features = false }
-rustls-webpki = "0.102.2"
+rustls-webpki = { version = "0.102.2", default-features = false }
 
 [features]
 default = []
@@ -27,5 +27,7 @@ antidote = "1.0.0"
 lazy_static = "1.4.0"
 once_cell = "1.8.0"
 rstest = "0.23.0"
+# Use aws_lc_rs to test our provider
+rustls = { version = "0.23.0", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki-roots = "0.26"

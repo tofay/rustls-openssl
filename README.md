@@ -1,5 +1,8 @@
 # rustls-openssl
-An experimental [rustls Crypto Provider](https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html) that uses OpenSSL for cryptographic operations.
+A [rustls Crypto Provider](https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html) that uses OpenSSL for cryptographic operations.
+
+## Status
+**Early in development.**
 
 ## Usage
 The main entry points are the `rustls_openssl::default_provider` and `rustls_openssl::custom_provider` functions.
@@ -20,6 +23,9 @@ TLS13_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
 ### TLS 1.2
 
 ```
+TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
@@ -36,4 +42,4 @@ X25519 // Requires the `x25519` feature
 
 ## Signature verification algorithms
 
-ECDSA signature verification is done using the webpki ring implementation. ED25119 and RSA signature verification is done using openssl.
+ECDSA signature verification is done using the webpki ring implementation. ED25519 and RSA signature verification is done using openssl.

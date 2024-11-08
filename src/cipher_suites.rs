@@ -53,20 +53,20 @@ pub static TLS13_AES_128_GCM_SHA256: SupportedCipherSuite =
 
 /// TLS 1.2
 
-// /// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256.
-// #[cfg(feature = "chacha")]
-// pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
-//     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
-//         common: CipherSuiteCommon {
-//             suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-//             hash_provider: &HashAlgorithm::SHA256,
-//             confidentiality_limit: u64::MAX,
-//         },
-//         kx: KeyExchangeAlgorithm::ECDHE,
-//         sign: TLS12_ECDSA_SCHEMES,
-//         aead_alg: &crate::tls12::Tls12ChaCha,
-//         prf_provider: &PrfUsingHmac(&HmacSha256),
-//     });
+/// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256.
+#[cfg(feature = "chacha")]
+pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            hash_provider: &HashAlgorithm::SHA256,
+            confidentiality_limit: u64::MAX,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: TLS12_ECDSA_SCHEMES,
+        aead_alg: &crate::tls12::Tls12ChaCha,
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
 
 /// The TLS1.2 ciphersuite TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 #[cfg(feature = "chacha")]
@@ -115,43 +115,43 @@ pub static TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         prf_provider: &PrfUsingHmac(&HmacSha384),
     });
 
-// /// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-// pub static TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
-//     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
-//         common: CipherSuiteCommon {
-//             suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-//             hash_provider: &HashAlgorithm::SHA256,
-//             confidentiality_limit: 1 << 23,
-//         },
-//         kx: KeyExchangeAlgorithm::ECDHE,
-//         sign: TLS12_ECDSA_SCHEMES,
-//         aead_alg: &Tls12Gcm {
-//             algo_type: AesGcm::Aes128Gcm,
-//         },
-//         prf_provider: &PrfUsingHmac(&HmacSha256),
-//     });
+/// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+pub static TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            hash_provider: &HashAlgorithm::SHA256,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: TLS12_ECDSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes128Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
 
-// /// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-// pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
-//     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
-//         common: CipherSuiteCommon {
-//             suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-//             hash_provider: &HashAlgorithm::SHA384,
-//             confidentiality_limit: 1 << 23,
-//         },
-//         kx: KeyExchangeAlgorithm::ECDHE,
-//         sign: TLS12_ECDSA_SCHEMES,
-//         aead_alg: &Tls12Gcm {
-//             algo_type: AesGcm::Aes256Gcm,
-//         },
-//         prf_provider: &PrfUsingHmac(&HmacSha384),
-//     });
+/// The TLS1.2 ciphersuite TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            hash_provider: &HashAlgorithm::SHA384,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: TLS12_ECDSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes256Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha384),
+    });
 
-// static TLS12_ECDSA_SCHEMES: &[SignatureScheme] = &[
-//     SignatureScheme::ECDSA_NISTP521_SHA512,
-//     SignatureScheme::ECDSA_NISTP384_SHA384,
-//     SignatureScheme::ECDSA_NISTP256_SHA256,
-// ];
+static TLS12_ECDSA_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::ECDSA_NISTP521_SHA512,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+];
 
 /// RSA schemes in descending order of preference
 pub(crate) static TLS12_RSA_SCHEMES: &[SignatureScheme] = &[

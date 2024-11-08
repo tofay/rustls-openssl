@@ -1,8 +1,14 @@
 //! Integration tests, based on rustls-symcrypt integration tests
-
+use openssl::bn::BigNumContext;
+use openssl::ec::{EcGroup, EcKey, PointConversionForm};
+use openssl::nid::Nid;
+use openssl::pkey::PKey;
+use openssl::rsa::Rsa;
 use rstest::rstest;
 use rustls::crypto::SupportedKxGroup;
-use rustls::{CipherSuite, SupportedCipherSuite};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::PrivateKeyDer;
+use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
 use rustls_openssl::{
     custom_provider, default_provider, SECP256R1, SECP384R1, TLS13_AES_128_GCM_SHA256,
     TLS13_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
@@ -226,10 +232,16 @@ fn test_with_custom_config_to_internet(
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
+// TODO: setup ECDSA certs
 // #[case::tls_ecdhe_ecdsa_with_aes_256_gcm_sha384(
 //     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 //     SECP384R1,
 //     CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+// )]
+// #[case::tls_ecdhe_ecdsa_with_aes_128_gcm_sha256(
+//     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+//     SECP256R1,
+//     CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 // )]
 fn test_tls(
     #[case] suite: SupportedCipherSuite,
@@ -316,4 +328,146 @@ fn test_default_client() {
 
     assert_eq!(ciphersuite.suite(), CipherSuite::TLS13_AES_256_GCM_SHA384);
     drop(lock);
+}
+
+static RSA_SIGNING_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::RSA_PKCS1_SHA256,
+    SignatureScheme::RSA_PKCS1_SHA384,
+    SignatureScheme::RSA_PKCS1_SHA512,
+    SignatureScheme::RSA_PSS_SHA256,
+    SignatureScheme::RSA_PSS_SHA384,
+    SignatureScheme::RSA_PSS_SHA512,
+];
+
+#[test]
+fn test_rsa_sign_and_verify() {
+    let ours = rustls_openssl::default_provider();
+    let theirs = rustls::crypto::aws_lc_rs::default_provider();
+
+    let private_key = Rsa::generate(2048).unwrap();
+    let rustls_private_key =
+        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem().unwrap()).unwrap();
+    let pub_key = private_key.public_key_to_der_pkcs1().unwrap();
+
+    for scheme in RSA_SIGNING_SCHEMES {
+        eprintln!("Testing scheme {:?}", scheme);
+
+        sign_and_verify(
+            &ours,
+            &theirs,
+            *scheme,
+            rustls_private_key.clone_key(),
+            &pub_key,
+        );
+        sign_and_verify(
+            &theirs,
+            &ours,
+            *scheme,
+            rustls_private_key.clone_key(),
+            &pub_key,
+        );
+    }
+}
+
+#[rstest]
+#[case::ecdsa_nistp256_sha256(SignatureScheme::ECDSA_NISTP256_SHA256, Nid::X9_62_PRIME256V1)]
+#[case::ecdsa_nistp384_sha384(SignatureScheme::ECDSA_NISTP384_SHA384, Nid::SECP384R1)]
+#[case::ecdsa_nistp521_sha512(SignatureScheme::ECDSA_NISTP521_SHA512, Nid::SECP521R1)]
+
+fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) {
+    let ours = rustls_openssl::default_provider();
+    let theirs = rustls::crypto::aws_lc_rs::default_provider();
+
+    let group = EcGroup::from_curve_name(curve).unwrap();
+
+    let private_key = EcKey::generate(&group).unwrap();
+    let rustls_private_key =
+        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem().unwrap()).unwrap();
+
+    eprintln!("private_key: {:?}", rustls_private_key);
+
+    let mut ctx = BigNumContext::new().unwrap();
+    let pub_key = private_key
+        .public_key()
+        // ring doesn't work if PointConversionForm::Compression, aws_lc_rs does
+        .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
+        .unwrap();
+
+    eprintln!("verifying using theirs");
+    sign_and_verify(
+        &ours,
+        &theirs,
+        scheme,
+        rustls_private_key.clone_key(),
+        &pub_key,
+    );
+    eprintln!("verifying using ours");
+    sign_and_verify(
+        &theirs,
+        &ours,
+        scheme,
+        rustls_private_key.clone_key(),
+        &pub_key,
+    );
+}
+
+#[test]
+fn test_ed25119_sign_and_verify() {
+    let ours = rustls_openssl::default_provider();
+    let theirs = rustls::crypto::aws_lc_rs::default_provider();
+    let scheme = SignatureScheme::ED25519;
+
+    let private_key = PKey::generate_ed25519().unwrap();
+    let pub_key = private_key.raw_public_key().unwrap();
+    let rustls_private_key =
+        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem_pkcs8().unwrap()).unwrap();
+    eprintln!("verifying using theirs");
+    sign_and_verify(
+        &ours,
+        &theirs,
+        scheme,
+        rustls_private_key.clone_key(),
+        &pub_key,
+    );
+    eprintln!("verifying using ours");
+    sign_and_verify(
+        &theirs,
+        &ours,
+        scheme,
+        rustls_private_key.clone_key(),
+        &pub_key,
+    );
+}
+
+fn sign_and_verify(
+    signing_provider: &rustls::crypto::CryptoProvider,
+    verifying_provider: &rustls::crypto::CryptoProvider,
+    scheme: SignatureScheme,
+    rustls_private_key: PrivateKeyDer<'static>,
+    pub_key: &[u8],
+) {
+    let data = b"hello, world!";
+
+    // sign
+    let signing_key = signing_provider
+        .key_provider
+        .load_private_key(rustls_private_key)
+        .unwrap();
+    let signer = signing_key
+        .choose_scheme(&[scheme])
+        .expect("signing provider supports this scheme");
+    let signature = signer.sign(data).unwrap();
+
+    // verify
+    let algs = verifying_provider
+        .signature_verification_algorithms
+        .mapping
+        .iter()
+        .find(|(k, _v)| *k == scheme)
+        .map(|(_k, v)| *v)
+        .expect("verifying provider supports this scheme");
+    assert!(!algs.is_empty());
+    assert!(algs
+        .iter()
+        .any(|alg| { alg.verify_signature(pub_key, data, &signature).is_ok() }));
 }

@@ -136,10 +136,10 @@ impl MessageDecrypter for Tls12ChaCha20Poly1305 {
                     Some(self.key.as_ref()),
                     Some(&nonce.0),
                 )?;
-                ctx.cipher_update(&aad, None).unwrap();
-                let count = ctx.cipher_update_inplace(payload, message_len).unwrap();
-                ctx.set_tag(&tag).unwrap();
-                let rest = ctx.cipher_final(&mut payload[count..]).unwrap();
+                ctx.cipher_update(&aad, None)?;
+                let count = ctx.cipher_update_inplace(payload, message_len)?;
+                ctx.set_tag(&tag)?;
+                let rest = ctx.cipher_final(&mut payload[count..])?;
                 payload.truncate(count + rest);
                 Ok(())
             })
@@ -263,7 +263,7 @@ impl MessageEncrypter for Gcm12Encrypt {
         CipherCtx::new()
             .and_then(|mut ctx| {
                 ctx.encrypt_init(Some(cipher), Some(self.key.as_ref()), Some(&nonce.0))?;
-                ctx.cipher_update(&aad, None).unwrap();
+                ctx.cipher_update(&aad, None)?;
                 let count = ctx.cipher_update_inplace(
                     &mut payload.as_mut()[GCM_EXPLICIT_NONCE_LENGTH..],
                     msg.payload.len(),

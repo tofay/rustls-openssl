@@ -1,6 +1,7 @@
 use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
+use openssl::sign::RsaPssSaltlen;
 use rustls::crypto::KeyProvider;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::SigningKey;
@@ -8,9 +9,13 @@ use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 use std::sync::Arc;
 
 use crate::cipher_suites::TLS12_RSA_SCHEMES;
+use crate::Provider;
 
-#[derive(Debug)]
-pub(crate) struct Provider;
+static ALL_ECDSA_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+    SignatureScheme::ECDSA_NISTP521_SHA512,
+];
 
 #[derive(Debug)]
 struct PKey(Arc<openssl::pkey::PKey<Private>>);
@@ -44,6 +49,24 @@ fn message_digest(scheme: &SignatureScheme) -> Option<MessageDigest> {
     }
 }
 
+fn mgf1(scheme: &SignatureScheme) -> Option<MessageDigest> {
+    match scheme {
+        SignatureScheme::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
+        SignatureScheme::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
+        SignatureScheme::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
+        _ => None,
+    }
+}
+
+fn pss_salt_len(scheme: &SignatureScheme) -> Option<RsaPssSaltlen> {
+    match scheme {
+        SignatureScheme::RSA_PSS_SHA256
+        | SignatureScheme::RSA_PSS_SHA384
+        | SignatureScheme::RSA_PSS_SHA512 => Some(RsaPssSaltlen::DIGEST_LENGTH),
+        _ => None,
+    }
+}
+
 impl PKey {
     fn signer(&self, scheme: &SignatureScheme) -> Signer {
         Signer {
@@ -58,9 +81,9 @@ impl KeyProvider for Provider {
         &self,
         key_der: PrivateKeyDer<'static>,
     ) -> Result<Arc<dyn SigningKey>, Error> {
-        Ok(Arc::new(PKey(Arc::new(
-            openssl::pkey::PKey::private_key_from_der(key_der.secret_der()).unwrap(),
-        ))))
+        let pkey = openssl::pkey::PKey::private_key_from_der(key_der.secret_der())
+            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))?;
+        Ok(Arc::new(PKey(Arc::new(pkey))))
     }
 }
 
@@ -92,12 +115,10 @@ impl SigningKey for PKey {
                     None
                 }
             }
-            // SignatureAlgorithm::ECDSA => ALL_ECDSA_SCHEMES
-            //     .iter()
-            //     .find(|scheme| offered.contains(scheme))
-            //     .map(|scheme| {
-            //         Box::new(self.digest_signer(scheme)) as Box<dyn rustls::sign::Signer>
-            //     }),
+            SignatureAlgorithm::ECDSA => ALL_ECDSA_SCHEMES
+                .iter()
+                .find(|scheme| offered.contains(scheme))
+                .map(|scheme| Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>),
             _ => None,
         }
     }
@@ -126,6 +147,12 @@ impl rustls::sign::Signer for Signer {
                 .and_then(|mut signer| {
                     if let Some(padding) = rsa_padding(&self.scheme) {
                         signer.set_rsa_padding(padding)?;
+                    }
+                    if let Some(mgf1) = mgf1(&self.scheme) {
+                        signer.set_rsa_mgf1_md(mgf1)?;
+                    }
+                    if let Some(len) = pss_salt_len(&self.scheme) {
+                        signer.set_rsa_pss_saltlen(len)?;
                     }
                     signer.update(message)?;
                     signer.sign_to_vec()
