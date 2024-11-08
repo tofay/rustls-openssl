@@ -39,7 +39,3 @@ SECP384R1
 SECP256R1
 X25519 // Requires the `x25519` feature
 ```
-
-## Signature verification algorithms
-
-ECDSA signature verification is done using the webpki ring implementation. ED25519 and RSA signature verification is done using openssl.
