@@ -1,6 +1,7 @@
 use openssl::bn::BigNumContext;
 use openssl::derive::Deriver;
 use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
+use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 #[cfg(feature = "x25519")]
 use openssl::pkey::Id;
@@ -62,20 +63,23 @@ pub const SECP384R1: &dyn SupportedKxGroup = &EcKxGroup {
 
 impl SupportedKxGroup for EcKxGroup {
     fn start(&self) -> Result<Box<(dyn ActiveKeyExchange)>, Error> {
-        let group = EcGroup::from_curve_name(self.nid).unwrap();
-        let priv_key = EcKey::generate(&group).unwrap();
-        let mut ctx = BigNumContext::new().unwrap();
-        let pub_key = priv_key
-            .public_key()
-            .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-            .unwrap();
-
-        Ok(Box::new(EcKeyExchange {
-            priv_key,
-            name: self.name,
-            group,
-            pub_key,
-        }))
+        EcGroup::from_curve_name(self.nid)
+            .and_then(|group| {
+                let priv_key = EcKey::generate(&group)?;
+                let mut ctx = BigNumContext::new()?;
+                let pub_key = priv_key.public_key().to_bytes(
+                    &group,
+                    PointConversionForm::UNCOMPRESSED,
+                    &mut ctx,
+                )?;
+                Ok(Box::new(EcKeyExchange {
+                    priv_key,
+                    name: self.name,
+                    group,
+                    pub_key,
+                }) as Box<dyn ActiveKeyExchange>)
+            })
+            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
     }
 
     fn name(&self) -> NamedGroup {
@@ -84,24 +88,27 @@ impl SupportedKxGroup for EcKxGroup {
 }
 
 impl EcKeyExchange {
-    fn load_peer_key(&self, peer_pub_key: &[u8]) -> Result<PKey<Public>, Error> {
-        let mut ctx = BigNumContext::new().unwrap();
-        let point = EcPoint::from_bytes(&self.group, peer_pub_key, &mut ctx).unwrap();
-        let peer_key = EcKey::from_public_key(&self.group, &point).unwrap();
-        peer_key.check_key().unwrap();
-        let peer_key: PKey<_> = peer_key.try_into().unwrap();
+    fn load_peer_key(&self, peer_pub_key: &[u8]) -> Result<PKey<Public>, ErrorStack> {
+        let mut ctx = BigNumContext::new()?;
+        let point = EcPoint::from_bytes(&self.group, peer_pub_key, &mut ctx)?;
+        let peer_key = EcKey::from_public_key(&self.group, &point)?;
+        peer_key.check_key()?;
+        let peer_key: PKey<_> = peer_key.try_into()?;
         Ok(peer_key)
     }
 }
 
 impl ActiveKeyExchange for EcKeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
-        let peer_key = self.load_peer_key(peer_pub_key).unwrap();
-        let key: PKey<_> = self.priv_key.try_into().unwrap();
-        let mut deriver = Deriver::new(&key).unwrap();
-        deriver.set_peer(&peer_key).unwrap();
-        let secret = deriver.derive_to_vec().unwrap();
-        Ok(SharedSecret::from(secret.as_slice()))
+        self.load_peer_key(peer_pub_key)
+            .and_then(|peer_key| {
+                let key: PKey<_> = self.priv_key.try_into()?;
+                let mut deriver = Deriver::new(&key)?;
+                deriver.set_peer(&peer_key)?;
+                let secret = deriver.derive_to_vec()?;
+                Ok(SharedSecret::from(secret.as_slice()))
+            })
+            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
     }
 
     fn pub_key(&self) -> &[u8] {
@@ -116,12 +123,15 @@ impl ActiveKeyExchange for EcKeyExchange {
 #[cfg(feature = "x25519")]
 impl SupportedKxGroup for X25519KxGroup {
     fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
-        let private_key = PKey::generate_x25519().unwrap();
-        let public_key = private_key.raw_public_key().unwrap();
-        Ok(Box::new(X25519KeyExchange {
-            private_key,
-            public_key,
-        }))
+        PKey::generate_x25519()
+            .and_then(|private_key| {
+                let public_key = private_key.raw_public_key()?;
+                Ok(Box::new(X25519KeyExchange {
+                    private_key,
+                    public_key,
+                }) as Box<dyn ActiveKeyExchange>)
+            })
+            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
     }
 
     fn name(&self) -> NamedGroup {
@@ -132,11 +142,14 @@ impl SupportedKxGroup for X25519KxGroup {
 #[cfg(feature = "x25519")]
 impl ActiveKeyExchange for X25519KeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
-        let peer_public_key = PKey::public_key_from_raw_bytes(peer_pub_key, Id::X25519).unwrap();
-        let mut deriver = Deriver::new(&self.private_key).unwrap();
-        deriver.set_peer(&peer_public_key).unwrap();
-        let secret = deriver.derive_to_vec().unwrap();
-        Ok(SharedSecret::from(secret.as_slice()))
+        PKey::public_key_from_raw_bytes(peer_pub_key, Id::X25519)
+            .and_then(|peer_pub_key| {
+                let mut deriver = Deriver::new(&self.private_key)?;
+                deriver.set_peer(&peer_pub_key)?;
+                let secret = deriver.derive_to_vec()?;
+                Ok(SharedSecret::from(secret.as_slice()))
+            })
+            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
     }
 
     fn pub_key(&self) -> &[u8] {

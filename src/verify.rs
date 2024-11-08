@@ -1,96 +1,171 @@
 use core::fmt;
-use std::ops::RangeInclusive;
-
 use openssl::{
+    bn::BigNumContext,
+    ec::{EcGroup, EcKey, EcPoint},
     hash::MessageDigest,
-    pkey::{PKey, Public},
+    nid::Nid,
+    pkey::{Id, PKey, Public},
     rsa::{Padding, Rsa},
     sign::{RsaPssSaltlen, Verifier},
 };
-use rustls::pki_types::{AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm};
+use rustls::{
+    crypto::WebPkiSupportedAlgorithms,
+    pki_types::{AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm},
+    SignatureScheme,
+};
 use webpki::alg_id;
 
+pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
+    all: &[
+        ECDSA_P256_SHA256,
+        ECDSA_P256_SHA384,
+        ECDSA_P384_SHA256,
+        ECDSA_P384_SHA384,
+        ECDSA_P521_SHA256,
+        ECDSA_P521_SHA384,
+        ECDSA_P521_SHA512,
+        ED25519,
+        RSA_PSS_SHA512,
+        RSA_PSS_SHA384,
+        RSA_PSS_SHA256,
+        RSA_PKCS1_SHA512,
+        RSA_PKCS1_SHA384,
+        RSA_PKCS1_SHA256,
+    ],
+    mapping: &[
+        //Note: for TLS1.2 the curve is not fixed by SignatureScheme. For TLS1.3 it is.
+        (
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            &[ECDSA_P384_SHA384, ECDSA_P256_SHA384, ECDSA_P521_SHA384],
+        ),
+        (
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            &[ECDSA_P256_SHA256, ECDSA_P384_SHA256, ECDSA_P521_SHA256],
+        ),
+        (SignatureScheme::ECDSA_NISTP521_SHA512, &[ECDSA_P521_SHA512]),
+        (SignatureScheme::ED25519, &[ED25519]),
+        (SignatureScheme::RSA_PSS_SHA512, &[RSA_PSS_SHA512]),
+        (SignatureScheme::RSA_PSS_SHA384, &[RSA_PSS_SHA384]),
+        (SignatureScheme::RSA_PSS_SHA256, &[RSA_PSS_SHA256]),
+        (SignatureScheme::RSA_PKCS1_SHA512, &[RSA_PKCS1_SHA512]),
+        (SignatureScheme::RSA_PKCS1_SHA384, &[RSA_PKCS1_SHA384]),
+        (SignatureScheme::RSA_PKCS1_SHA256, &[RSA_PKCS1_SHA256]),
+    ],
+};
+
 /// RSA PKCS#1 1.5 signatures using SHA-256 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+pub static RSA_PKCS1_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA256,
-    range: Some(2048..=8192),
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-384 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+pub static RSA_PKCS1_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA384,
-    range: Some(2048..=8192),
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-512 for keys of 2048-8192 bits.
-pub static RSA_PKCS1_2048_8192_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+pub static RSA_PKCS1_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA512,
-    range: Some(2048..=8192),
 };
 
-/// RSA PKCS#1 1.5 signatures using SHA-384 for keys of 3072-8192 bits.
-pub static RSA_PKCS1_3072_8192_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+/// RSA PSS signatures using SHA-256
+///
+/// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
+pub static RSA_PSS_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
-    signature_alg_id: alg_id::RSA_PKCS1_SHA384,
-    range: Some(3072..=8192),
+    signature_alg_id: alg_id::RSA_PSS_SHA256,
 };
 
-/// RSA PSS signatures using SHA-256 for keys of 2048-8192 bits and of
-/// type rsaEncryption; see [RFC 4055 Section 1.2].
+/// RSA PSS signatures using SHA-384
 ///
 /// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
-pub static RSA_PSS_2048_8192_SHA256_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &OpenSslAlgorithm {
-        public_key_alg_id: alg_id::RSA_ENCRYPTION,
-        signature_alg_id: alg_id::RSA_PSS_SHA256,
-        range: Some(2048..=8192),
-    };
+pub static RSA_PSS_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::RSA_ENCRYPTION,
+    signature_alg_id: alg_id::RSA_PSS_SHA384,
+};
 
-/// RSA PSS signatures using SHA-384 for keys of 2048-8192 bits and of
-/// type rsaEncryption; see [RFC 4055 Section 1.2].
+/// RSA PSS signatures using SHA-512
 ///
 /// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
-pub static RSA_PSS_2048_8192_SHA384_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &OpenSslAlgorithm {
-        public_key_alg_id: alg_id::RSA_ENCRYPTION,
-        signature_alg_id: alg_id::RSA_PSS_SHA384,
-        range: Some(2048..=8192),
-    };
-
-/// RSA PSS signatures using SHA-512 for keys of 2048-8192 bits and of
-/// type rsaEncryption; see [RFC 4055 Section 1.2].
-///
-/// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
-pub static RSA_PSS_2048_8192_SHA512_LEGACY_KEY: &dyn SignatureVerificationAlgorithm =
-    &OpenSslAlgorithm {
-        public_key_alg_id: alg_id::RSA_ENCRYPTION,
-        signature_alg_id: alg_id::RSA_PSS_SHA512,
-        range: Some(2048..=8192),
-    };
+pub static RSA_PSS_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::RSA_ENCRYPTION,
+    signature_alg_id: alg_id::RSA_PSS_SHA512,
+};
 
 /// ED25519 signatures according to RFC 8410
 pub static ED25519: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::ED25519,
     signature_alg_id: alg_id::ED25519,
-    range: None,
+};
+
+/// ECDSA signatures using the P-256 curve and SHA-256.
+pub static ECDSA_P256_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P256,
+    signature_alg_id: alg_id::ECDSA_SHA256,
+};
+
+/// ECDSA signatures using the P-256 curve and SHA-384. Deprecated.
+pub static ECDSA_P256_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P256,
+    signature_alg_id: alg_id::ECDSA_SHA384,
+};
+
+/// ECDSA signatures using the P-384 curve and SHA-256. Deprecated.
+pub static ECDSA_P384_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P384,
+    signature_alg_id: alg_id::ECDSA_SHA256,
+};
+
+/// ECDSA signatures using the P-384 curve and SHA-384.
+pub static ECDSA_P384_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P384,
+    signature_alg_id: alg_id::ECDSA_SHA384,
+};
+
+/// ECDSA signatures using the P-521 curve and SHA-256.
+pub static ECDSA_P521_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P521,
+    signature_alg_id: alg_id::ECDSA_SHA256,
+};
+
+/// ECDSA signatures using the P-521 curve and SHA-384.
+pub static ECDSA_P521_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P521,
+    signature_alg_id: alg_id::ECDSA_SHA384,
+};
+
+/// ECDSA signatures using the P-521 curve and SHA-512.
+pub static ECDSA_P521_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    public_key_alg_id: alg_id::ECDSA_P521,
+    signature_alg_id: alg_id::ECDSA_SHA512,
 };
 
 struct OpenSslAlgorithm {
     public_key_alg_id: AlgorithmIdentifier,
     signature_alg_id: AlgorithmIdentifier,
-    range: Option<RangeInclusive<u32>>,
 }
 
 impl fmt::Debug for OpenSslAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OpensslAlgorithm")
+        f.debug_struct("OpenSSLAlgorithm")
             .field("public_key_alg_id", &self.public_key_alg_id)
             .field("signature_alg_id", &self.signature_alg_id)
             .finish()
     }
+}
+
+fn ecdsa_public_key(curve_name: Nid, public_key: &[u8]) -> Result<PKey<Public>, InvalidSignature> {
+    EcGroup::from_curve_name(curve_name)
+        .and_then(|group| {
+            let mut ctx = BigNumContext::new()?;
+            let point = EcPoint::from_bytes(&group, public_key, &mut ctx)?;
+            let key = EcKey::from_public_key(&group, &point)?;
+            key.try_into()
+        })
+        .map_err(|_| InvalidSignature)
 }
 
 impl OpenSslAlgorithm {
@@ -99,6 +174,12 @@ impl OpenSslAlgorithm {
             alg_id::RSA_ENCRYPTION => Rsa::public_key_from_der_pkcs1(public_key)
                 .and_then(|rsa| rsa.try_into())
                 .map_err(|_| InvalidSignature),
+            alg_id::ECDSA_P521 => ecdsa_public_key(Nid::SECP521R1, public_key),
+            alg_id::ECDSA_P384 => ecdsa_public_key(Nid::SECP384R1, public_key),
+            alg_id::ECDSA_P256 => ecdsa_public_key(Nid::X9_62_PRIME256V1, public_key),
+            alg_id::ED25519 => PKey::public_key_from_raw_bytes(public_key, Id::ED25519)
+                .map_err(|_| InvalidSignature),
+
             _ => Err(InvalidSignature),
         }
     }
@@ -111,6 +192,9 @@ impl OpenSslAlgorithm {
             alg_id::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
             alg_id::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
             alg_id::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
+            alg_id::ECDSA_SHA256 => Some(MessageDigest::sha256()),
+            alg_id::ECDSA_SHA384 => Some(MessageDigest::sha384()),
+            alg_id::ECDSA_SHA512 => Some(MessageDigest::sha512()),
             _ => None,
         }
     }
@@ -181,16 +265,6 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
             };
         }
         let pkey = self.public_key(public_key)?;
-
-        // Check the length is in the range.
-        if !self
-            .range
-            .as_ref()
-            .map(|range| range.contains(&pkey.bits()))
-            .unwrap_or(true)
-        {
-            return Err(InvalidSignature);
-        }
 
         if let Some(message_digest) = self.message_digest() {
             Verifier::new(message_digest, &pkey).and_then(|mut verifier| {

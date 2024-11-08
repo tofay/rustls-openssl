@@ -4,7 +4,6 @@
 //!
 //! ## Limitations
 //!
-//! - TLS 1.2: No ECDSA support.
 //! - QUIC Protocol: Not supported.
 //!
 //! ## Supported Ciphers
@@ -22,9 +21,9 @@
 //! ### TLS 1.2
 //!
 //! ```ignore
-// //! TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-// //! TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-// //! TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
+//! TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+//! TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+//! TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
 //! TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 //! TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 //! TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
@@ -104,10 +103,8 @@
 //! - `x25519`: Enables X25519 key exchange group.
 
 use openssl::rand::rand_bytes;
-use rustls::crypto::{
-    CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxGroup, WebPkiSupportedAlgorithms,
-};
-use rustls::{SignatureScheme, SupportedCipherSuite};
+use rustls::crypto::{CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxGroup};
+use rustls::SupportedCipherSuite;
 
 mod cipher_suites;
 mod ecdh;
@@ -123,13 +120,15 @@ pub use cipher_suites::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 
 /// Exporting default cipher suites for TLS 1.2
 pub use cipher_suites::{
+    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 };
 
 /// Exporting ChaCha suites for TLS 1.2 and TLS 1.3
 #[cfg(feature = "chacha")]
 pub use cipher_suites::{
-    TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 };
 
 /// Exporting default key exchange groups
@@ -165,9 +164,9 @@ pub fn default_provider() -> CryptoProvider {
     CryptoProvider {
         cipher_suites: DEFAULT_CIPHER_SUITES.to_vec(),
         kx_groups: ecdh::ALL_KX_GROUPS.to_vec(),
-        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
-        secure_random: &Rng,
-        key_provider: &signer::Provider,
+        signature_verification_algorithms: verify::SUPPORTED_SIG_ALGS,
+        secure_random: &Provider,
+        key_provider: &Provider,
     }
 }
 
@@ -225,9 +224,9 @@ pub fn custom_provider(
     CryptoProvider {
         cipher_suites,
         kx_groups: kx_group,
-        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
-        secure_random: &Rng,
-        key_provider: &signer::Provider,
+        signature_verification_algorithms: verify::SUPPORTED_SIG_ALGS,
+        secure_random: &Provider,
+        key_provider: &Provider,
     }
 }
 
@@ -239,9 +238,9 @@ pub fn custom_provider(
 /// TLS13_AES_128_GCM_SHA256
 /// TLS13_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
 /// // TLS 1.2 suites
-/// // TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-/// // TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-/// // TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
+/// TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+/// TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+/// TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
 /// TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 /// TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 /// TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
@@ -255,81 +254,20 @@ static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     #[cfg(feature = "chacha")]
     TLS13_CHACHA20_POLY1305_SHA256,
     // TLS 1.2 suites
-    // TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-    // TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    // #[cfg(feature = "chacha")]
-    // TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+    #[cfg(feature = "chacha")]
+    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     #[cfg(feature = "chacha")]
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
-// TODO implement ECDSA verification. For now reuse webpki's ring implementation.
-use webpki::ring as webpki_algs;
-
-static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
-    all: &[
-        webpki_algs::ECDSA_P256_SHA256,
-        webpki_algs::ECDSA_P256_SHA384,
-        webpki_algs::ECDSA_P384_SHA256,
-        webpki_algs::ECDSA_P384_SHA384,
-        verify::ED25519,
-        verify::RSA_PSS_2048_8192_SHA256_LEGACY_KEY,
-        verify::RSA_PSS_2048_8192_SHA384_LEGACY_KEY,
-        verify::RSA_PSS_2048_8192_SHA512_LEGACY_KEY,
-        verify::RSA_PKCS1_2048_8192_SHA256,
-        verify::RSA_PKCS1_2048_8192_SHA384,
-        verify::RSA_PKCS1_2048_8192_SHA512,
-        verify::RSA_PKCS1_3072_8192_SHA384,
-    ],
-    mapping: &[
-        //Note: for TLS1.2 the curve is not fixed by SignatureScheme. For TLS1.3 it is.
-        (
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            &[
-                webpki_algs::ECDSA_P384_SHA384,
-                webpki_algs::ECDSA_P256_SHA384,
-            ],
-        ),
-        (
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            &[
-                webpki_algs::ECDSA_P256_SHA256,
-                webpki_algs::ECDSA_P384_SHA256,
-            ],
-        ),
-        (SignatureScheme::ED25519, &[verify::ED25519]),
-        (
-            SignatureScheme::RSA_PSS_SHA512,
-            &[verify::RSA_PSS_2048_8192_SHA512_LEGACY_KEY],
-        ),
-        (
-            SignatureScheme::RSA_PSS_SHA384,
-            &[verify::RSA_PSS_2048_8192_SHA384_LEGACY_KEY],
-        ),
-        (
-            SignatureScheme::RSA_PSS_SHA256,
-            &[verify::RSA_PSS_2048_8192_SHA256_LEGACY_KEY],
-        ),
-        (
-            SignatureScheme::RSA_PKCS1_SHA512,
-            &[verify::RSA_PKCS1_2048_8192_SHA512],
-        ),
-        (
-            SignatureScheme::RSA_PKCS1_SHA384,
-            &[verify::RSA_PKCS1_2048_8192_SHA384],
-        ),
-        (
-            SignatureScheme::RSA_PKCS1_SHA256,
-            &[verify::RSA_PKCS1_2048_8192_SHA256],
-        ),
-    ],
-};
 #[derive(Debug)]
-struct Rng;
+struct Provider;
 
-impl SecureRandom for Rng {
+impl SecureRandom for Provider {
     fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {
         rand_bytes(buf).map_err(|_| GetRandomFailed)
     }

@@ -148,12 +148,11 @@ impl MessageDecrypter for AeadMessageCrypter {
                     Some(self.algo.openssl_cipher()),
                     Some(self.key.as_ref()),
                     Some(&nonce.0),
-                )
-                .unwrap();
+                )?;
                 ctx.cipher_update(&aad, None)?;
                 let count = ctx.cipher_update_inplace(payload, message_len)?;
                 ctx.set_tag(&tag)?;
-                let rest = ctx.cipher_final(&mut payload[count..]).unwrap();
+                let rest = ctx.cipher_final(&mut payload[count..])?;
                 payload.truncate(count + rest);
                 Ok(())
             })
