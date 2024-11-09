@@ -221,13 +221,13 @@ fn test_with_custom_config_to_internet(
 )]
 #[cfg_attr(
     feature = "x25519",
-    case::tls13_aes_256_gcm_sha384(
+    case::tls13_aes_256_gcm_sha384_x25519(
         TLS13_AES_256_GCM_SHA384,
         rustls_openssl::X25519,
         CipherSuite::TLS13_AES_256_GCM_SHA384
     )
 )]
-#[case::tls13_aes_256_gcm_sha384(
+#[case::tls13_aes_256_gcm_sha384_secp384r1(
     TLS13_AES_256_GCM_SHA384,
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
@@ -263,7 +263,7 @@ fn test_tls(
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     )
 )]
-#[case(
+#[case::tls13_aes_256_gcm_sha384(
     TLS13_AES_256_GCM_SHA384,
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
