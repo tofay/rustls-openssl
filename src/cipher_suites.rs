@@ -1,12 +1,10 @@
 pub mod tls13 {
+    use crate::aead::AeadAlgorithm;
     use crate::hash::HashAlgorithm;
     use crate::hmac::{HmacSha256, HmacSha384};
+    use rustls::crypto::tls13::HkdfUsingHmac;
     use rustls::crypto::CipherSuiteCommon;
     use rustls::{CipherSuite, SupportedCipherSuite, Tls13CipherSuite};
-
-    use rustls::crypto::tls13::HkdfUsingHmac;
-
-    use crate::tls13::AeadAlgorithm;
 
     /// The TLS1.3 ciphersuite TLS_CHACHA20_POLY1305_SHA256
     #[cfg(feature = "chacha")]

@@ -106,6 +106,7 @@ use openssl::rand::rand_bytes;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
+mod aead;
 mod cipher_suites;
 mod hash;
 mod hmac;
