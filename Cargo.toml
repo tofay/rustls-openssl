@@ -11,16 +11,14 @@ readme = "README.md"
 
 [dependencies]
 openssl = { version = "0.10.68" }
-rustls = { version = "0.23.0", features = [
-    "tls12",
-    "std",
-], default-features = false }
+rustls = { version = "0.23.0", default-features = false }
 rustls-webpki = { version = "0.102.2", default-features = false }
 
 [features]
-default = []
+default = ["tls12"]
 x25519 = []
 chacha = []
+tls12 = ["rustls/tls12"]
 
 [dev-dependencies]
 antidote = "1.0.0"

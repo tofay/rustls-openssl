@@ -11,8 +11,7 @@ use rustls::pki_types::PrivateKeyDer;
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
 use rustls_openssl::{
     custom_provider, default_provider, SECP256R1, SECP384R1, TLS13_AES_128_GCM_SHA256,
-    TLS13_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS13_AES_256_GCM_SHA384,
 };
 #[cfg(feature = "chacha")]
 use rustls_openssl::{TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256};
@@ -209,28 +208,42 @@ fn test_with_custom_config_to_internet(
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
     )
 )]
-#[case::tls_ecdhe_rsa_with_aes_256_gcm_sha384(
-    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-    SECP256R1,
-    CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+#[cfg_attr(
+    feature = "tls12",
+    case::tls_ecdhe_rsa_with_aes_256_gcm_sha384(
+        rustls_openssl::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        SECP256R1,
+        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    )
 )]
-#[case::tls_ecdhe_rsa_with_aes_128_gcm_sha256(
-    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    SECP256R1,
-    CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+#[cfg_attr(
+    feature = "tls12",
+    case::tls_ecdhe_rsa_with_aes_128_gcm_sha256(
+        rustls_openssl::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        SECP256R1,
+        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    )
 )]
 #[cfg_attr(
     feature = "x25519",
-    case::tls13_aes_256_gcm_sha384(
+    case::tls13_aes_256_gcm_sha384_x25519(
         TLS13_AES_256_GCM_SHA384,
         rustls_openssl::X25519,
         CipherSuite::TLS13_AES_256_GCM_SHA384
     )
 )]
-#[case::tls13_aes_256_gcm_sha384(
+#[case::tls13_aes_256_gcm_sha384_secp384r1(
     TLS13_AES_256_GCM_SHA384,
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
+)]
+#[cfg_attr(
+    all(feature = "tls12", feature = "chacha"),
+    case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
+        rustls_openssl::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        SECP256R1,
+        CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+    )
 )]
 // TODO: setup ECDSA certs
 // #[case::tls_ecdhe_ecdsa_with_aes_256_gcm_sha384(
@@ -263,7 +276,7 @@ fn test_tls(
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     )
 )]
-#[case(
+#[case::tls13_aes_256_gcm_sha384(
     TLS13_AES_256_GCM_SHA384,
     SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
