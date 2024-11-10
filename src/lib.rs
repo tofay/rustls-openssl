@@ -107,36 +107,31 @@ use rustls::crypto::{CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxG
 use rustls::SupportedCipherSuite;
 
 mod cipher_suites;
-mod ecdh;
 mod hash;
 mod hmac;
+mod kx;
 mod signer;
+#[cfg(feature = "tls12")]
 mod tls12;
 mod tls13;
 mod verify;
 
-/// Exporting default cipher suites for TLS 1.3
-pub use cipher_suites::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
-
-/// Exporting default cipher suites for TLS 1.2
-pub use cipher_suites::{
+#[cfg(feature = "tls12")]
+pub use cipher_suites::tls12::{
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 };
-
-/// Exporting ChaCha suites for TLS 1.2 and TLS 1.3
-#[cfg(feature = "chacha")]
-pub use cipher_suites::{
-    TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+#[cfg(all(feature = "tls12", feature = "chacha"))]
+pub use cipher_suites::tls12::{
+    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 };
-
-/// Exporting default key exchange groups
-pub use ecdh::{SECP256R1, SECP384R1};
-
-/// Exporting X25519 key exchange group
+#[cfg(feature = "chacha")]
+pub use cipher_suites::tls13::TLS13_CHACHA20_POLY1305_SHA256;
+pub use cipher_suites::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 #[cfg(feature = "x25519")]
-pub use ecdh::X25519;
+pub use kx::X25519;
+pub use kx::{ALL_KX_GROUPS, SECP256R1, SECP384R1};
+pub use verify::SUPPORTED_SIG_ALGS;
 
 /// `default_provider` returns a `CryptoProvider` using default and cipher suites.
 /// For cipher suites see[`DEFAULT_CIPHER_SUITES`].
@@ -163,8 +158,8 @@ pub use ecdh::X25519;
 pub fn default_provider() -> CryptoProvider {
     CryptoProvider {
         cipher_suites: DEFAULT_CIPHER_SUITES.to_vec(),
-        kx_groups: ecdh::ALL_KX_GROUPS.to_vec(),
-        signature_verification_algorithms: verify::SUPPORTED_SIG_ALGS,
+        kx_groups: ALL_KX_GROUPS.to_vec(),
+        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
         secure_random: &Provider,
         key_provider: &Provider,
     }
@@ -218,13 +213,13 @@ pub fn custom_provider(
 
     let kx_group = match provided_kx_group {
         Some(groups) if !groups.is_empty() => groups,
-        _ => ecdh::ALL_KX_GROUPS.to_vec(),
+        _ => ALL_KX_GROUPS.to_vec(),
     };
 
     CryptoProvider {
         cipher_suites,
         kx_groups: kx_group,
-        signature_verification_algorithms: verify::SUPPORTED_SIG_ALGS,
+        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
         secure_random: &Provider,
         key_provider: &Provider,
     }
@@ -237,7 +232,7 @@ pub fn custom_provider(
 /// TLS13_AES_256_GCM_SHA384
 /// TLS13_AES_128_GCM_SHA256
 /// TLS13_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
-/// // TLS 1.2 suites
+/// // TLS 1.2 suites, enabled with the `tls12` feature
 /// TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 /// TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 /// TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Enabled with the `chacha` feature
@@ -248,24 +243,29 @@ pub fn custom_provider(
 pub static DEFAULT_CIPHER_SUITES: &[SupportedCipherSuite] = ALL_CIPHER_SUITES;
 
 static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
-    // TLS 1.3 suites
     TLS13_AES_256_GCM_SHA384,
     TLS13_AES_128_GCM_SHA256,
     #[cfg(feature = "chacha")]
     TLS13_CHACHA20_POLY1305_SHA256,
-    // TLS 1.2 suites
+    #[cfg(feature = "tls12")]
     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    #[cfg(feature = "tls12")]
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(feature = "chacha")]
+    #[cfg(all(feature = "tls12", feature = "chacha"))]
     TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    #[cfg(feature = "tls12")]
     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    #[cfg(feature = "tls12")]
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     #[cfg(feature = "chacha")]
+    #[cfg(all(feature = "tls12", feature = "chacha"))]
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
+/// Rustls Openssl crypto provider.
+/// Implements `SecureRandom` and `KeyProvider` traits.
 #[derive(Debug)]
-struct Provider;
+pub struct Provider;
 
 impl SecureRandom for Provider {
     fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {

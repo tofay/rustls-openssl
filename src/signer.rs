@@ -1,3 +1,4 @@
+use crate::Provider;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
@@ -8,14 +9,28 @@ use rustls::sign::SigningKey;
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 use std::sync::Arc;
 
-use crate::cipher_suites::TLS12_RSA_SCHEMES;
-use crate::Provider;
-
-static ALL_ECDSA_SCHEMES: &[SignatureScheme] = &[
-    SignatureScheme::ECDSA_NISTP256_SHA256,
-    SignatureScheme::ECDSA_NISTP384_SHA384,
-    SignatureScheme::ECDSA_NISTP521_SHA512,
+/// RSA schemes in descending order of preference
+pub(crate) static RSA_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::RSA_PSS_SHA512,
+    SignatureScheme::RSA_PSS_SHA384,
+    SignatureScheme::RSA_PSS_SHA256,
+    SignatureScheme::RSA_PKCS1_SHA512,
+    SignatureScheme::RSA_PKCS1_SHA384,
+    SignatureScheme::RSA_PKCS1_SHA256,
 ];
+
+/// All ECDSA signature schemes in descending order of preference
+pub(crate) static ECDSA_SCHEMES: &[SignatureScheme] = &[
+    SignatureScheme::ECDSA_NISTP521_SHA512,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+];
+
+#[derive(Debug)]
+struct Signer {
+    key: Arc<openssl::pkey::PKey<Private>>,
+    scheme: SignatureScheme,
+}
 
 #[derive(Debug)]
 struct PKey(Arc<openssl::pkey::PKey<Private>>);
@@ -90,7 +105,7 @@ impl KeyProvider for Provider {
 impl SigningKey for PKey {
     fn choose_scheme(&self, offered: &[SignatureScheme]) -> Option<Box<dyn rustls::sign::Signer>> {
         match self.algorithm() {
-            SignatureAlgorithm::RSA => TLS12_RSA_SCHEMES
+            SignatureAlgorithm::RSA => RSA_SCHEMES
                 .iter()
                 .find(|scheme| offered.contains(scheme))
                 .map(|scheme| Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>),
@@ -115,7 +130,7 @@ impl SigningKey for PKey {
                     None
                 }
             }
-            SignatureAlgorithm::ECDSA => ALL_ECDSA_SCHEMES
+            SignatureAlgorithm::ECDSA => ECDSA_SCHEMES
                 .iter()
                 .find(|scheme| offered.contains(scheme))
                 .map(|scheme| Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>),
@@ -132,12 +147,6 @@ impl SigningKey for PKey {
             _ => SignatureAlgorithm::Unknown(self.0.id().as_raw().try_into().unwrap_or_default()),
         }
     }
-}
-
-#[derive(Debug)]
-struct Signer {
-    key: Arc<openssl::pkey::PKey<Private>>,
-    scheme: SignatureScheme,
 }
 
 impl rustls::sign::Signer for Signer {
