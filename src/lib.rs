@@ -2,10 +2,6 @@
 //!
 //! A Rustls crypto provider that uses `OpenSSL` for crypto.
 //!
-//! ## Limitations
-//!
-//! - QUIC Protocol: Not supported.
-//!
 //! ## Supported Ciphers
 //!
 //! Supported cipher suites are listed below, ordered by preference. IE: The default configuration prioritizes `TLS13_AES_256_GCM_SHA384` over `TLS13_AES_128_GCM_SHA256`.

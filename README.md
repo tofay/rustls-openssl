@@ -14,6 +14,8 @@ Supported cipher suites are listed below, in descending order of preference.
 
 ### TLS 1.3
 
+The following cipher suites are supported for TLS 1.3. These support QUIC.
+
 ```
 TLS13_AES_256_GCM_SHA384
 TLS13_AES_128_GCM_SHA256
