@@ -42,3 +42,8 @@ SECP384R1
 SECP256R1
 X25519 // Requires the `x25519` feature
 ```
+
+# Tests
+
+In addition to the tests in this repo, CI also runs rustls tests that run against all providers.
+This is done by patching this repo as a module into a rustls checkout repo, hence this repo mirroring the `rustls::crypto::<provider>` module structure.
