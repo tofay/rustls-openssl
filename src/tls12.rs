@@ -1,9 +1,18 @@
+use super::hash::{SHA256, SHA384};
+use super::hmac::{HmacSha256, HmacSha384};
+use super::signer::{ECDSA_SCHEMES, RSA_SCHEMES};
+use alloc::boxed::Box;
+use alloc::format;
 use openssl::cipher::{Cipher, CipherRef};
 use openssl::cipher_ctx::CipherCtx;
 use rustls::crypto::cipher::{
     make_tls12_aad, AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, KeyBlockShape,
     MessageDecrypter, MessageEncrypter, Nonce, OutboundOpaqueMessage, OutboundPlainMessage,
     PrefixedPayload, Tls12AeadAlgorithm, UnsupportedOperationError,
+};
+use rustls::{
+    crypto::{tls12::PrfUsingHmac, KeyExchangeAlgorithm},
+    CipherSuite, CipherSuiteCommon, SupportedCipherSuite, Tls12CipherSuite,
 };
 use rustls::{ConnectionTrafficSecrets, Error};
 
@@ -18,6 +27,100 @@ const CHACHA_TAG_LENGTH: usize = 16;
 const CHAHCA_NONCE_LENGTH: usize = 12;
 #[cfg(feature = "chacha")]
 const CHACHA_KEY_LENGTH: usize = 32;
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`.
+#[cfg(feature = "chacha")]
+pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            hash_provider: &SHA256,
+            confidentiality_limit: u64::MAX,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: ECDSA_SCHEMES,
+        aead_alg: &Tls12ChaCha,
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
+#[cfg(feature = "chacha")]
+pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            hash_provider: &SHA256,
+            confidentiality_limit: u64::MAX,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: RSA_SCHEMES,
+        aead_alg: &Tls12ChaCha,
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
+pub static TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            hash_provider: &SHA256,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: RSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes128Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
+pub static TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            hash_provider: &SHA384,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: RSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes256Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha384),
+    });
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+pub static TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            hash_provider: &SHA256,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: ECDSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes128Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha256),
+    });
+
+/// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
+    SupportedCipherSuite::Tls12(&Tls12CipherSuite {
+        common: CipherSuiteCommon {
+            suite: CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            hash_provider: &SHA384,
+            confidentiality_limit: 1 << 23,
+        },
+        kx: KeyExchangeAlgorithm::ECDHE,
+        sign: ECDSA_SCHEMES,
+        aead_alg: &Tls12Gcm {
+            algo_type: AesGcm::Aes256Gcm,
+        },
+        prf_provider: &PrfUsingHmac(&HmacSha384),
+    });
 
 #[cfg(feature = "chacha")]
 pub(crate) struct Tls12ChaCha;
@@ -89,7 +192,7 @@ impl MessageEncrypter for Tls12ChaCha20Poly1305 {
         let aad = make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
 
         payload.extend_from_chunks(&msg.payload);
-        payload.extend_from_slice(&vec![0u8; cipher.block_size()]);
+        payload.extend_from_slice(&alloc::vec![0u8; cipher.block_size()]);
 
         CipherCtx::new()
             .and_then(|mut ctx| {
@@ -102,7 +205,7 @@ impl MessageEncrypter for Tls12ChaCha20Poly1305 {
                 payload.extend_from_slice(&tag);
                 Ok(OutboundOpaqueMessage::new(msg.typ, msg.version, payload))
             })
-            .map_err(|e| rustls::Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn encrypted_payload_len(&self, payload_len: usize) -> usize {
@@ -143,7 +246,7 @@ impl MessageDecrypter for Tls12ChaCha20Poly1305 {
                 payload.truncate(count + rest);
                 Ok(())
             })
-            .map_err(|e| rustls::Error::General(format!("OpenSSL error: {}", e)))?;
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
         Ok(msg.into_plain_message())
     }
 }
@@ -255,7 +358,7 @@ impl MessageEncrypter for Gcm12Encrypt {
         let nonce = Nonce::new(&Iv::copy(&self.full_iv), seq);
         payload.extend_from_slice(&nonce.0[GCM_IMPLICIT_NONCE_LENGTH..]);
         payload.extend_from_chunks(&msg.payload);
-        payload.extend_from_slice(&vec![0u8; cipher.block_size()]);
+        payload.extend_from_slice(&alloc::vec![0u8; cipher.block_size()]);
 
         let mut tag = [0u8; GCM_TAG_LENGTH];
         let aad = make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
@@ -275,7 +378,7 @@ impl MessageEncrypter for Gcm12Encrypt {
 
                 Ok(OutboundOpaqueMessage::new(msg.typ, msg.version, payload))
             })
-            .map_err(|e| rustls::Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn encrypted_payload_len(&self, payload_len: usize) -> usize {
@@ -331,7 +434,7 @@ impl MessageDecrypter for Gcm12Decrypt {
                 payload.truncate(count + rest);
                 Ok(())
             })
-            .map_err(|e| rustls::Error::General(format!("OpenSSL error: {}", e)))?;
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
         Ok(msg.into_plain_message())
     }
 }

@@ -1,4 +1,7 @@
-use crate::Provider;
+use super::Provider;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::vec::Vec;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
@@ -35,10 +38,9 @@ struct Signer {
 #[derive(Debug)]
 struct PKey(Arc<openssl::pkey::PKey<Private>>);
 
-fn rsa_padding(scheme: &SignatureScheme) -> Option<Padding> {
+fn rsa_padding(scheme: SignatureScheme) -> Option<Padding> {
     match scheme {
-        SignatureScheme::RSA_PKCS1_SHA1
-        | SignatureScheme::RSA_PKCS1_SHA256
+        SignatureScheme::RSA_PKCS1_SHA256
         | SignatureScheme::RSA_PKCS1_SHA384
         | SignatureScheme::RSA_PKCS1_SHA512 => Some(Padding::PKCS1),
         SignatureScheme::RSA_PSS_SHA256
@@ -48,23 +50,22 @@ fn rsa_padding(scheme: &SignatureScheme) -> Option<Padding> {
     }
 }
 
-fn message_digest(scheme: &SignatureScheme) -> Option<MessageDigest> {
+fn message_digest(scheme: SignatureScheme) -> Option<MessageDigest> {
     match scheme {
-        SignatureScheme::RSA_PKCS1_SHA1 => Some(MessageDigest::sha1()),
-        SignatureScheme::RSA_PKCS1_SHA256 => Some(MessageDigest::sha256()),
-        SignatureScheme::RSA_PKCS1_SHA384 => Some(MessageDigest::sha384()),
-        SignatureScheme::RSA_PKCS1_SHA512 => Some(MessageDigest::sha512()),
-        SignatureScheme::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
-        SignatureScheme::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
-        SignatureScheme::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
-        SignatureScheme::ECDSA_NISTP256_SHA256 => Some(MessageDigest::sha256()),
-        SignatureScheme::ECDSA_NISTP384_SHA384 => Some(MessageDigest::sha384()),
-        SignatureScheme::ECDSA_NISTP521_SHA512 => Some(MessageDigest::sha512()),
+        SignatureScheme::RSA_PKCS1_SHA256
+        | SignatureScheme::RSA_PSS_SHA256
+        | SignatureScheme::ECDSA_NISTP256_SHA256 => Some(MessageDigest::sha256()),
+        SignatureScheme::RSA_PKCS1_SHA384
+        | SignatureScheme::RSA_PSS_SHA384
+        | SignatureScheme::ECDSA_NISTP384_SHA384 => Some(MessageDigest::sha384()),
+        SignatureScheme::RSA_PKCS1_SHA512
+        | SignatureScheme::RSA_PSS_SHA512
+        | SignatureScheme::ECDSA_NISTP521_SHA512 => Some(MessageDigest::sha512()),
         _ => None,
     }
 }
 
-fn mgf1(scheme: &SignatureScheme) -> Option<MessageDigest> {
+fn mgf1(scheme: SignatureScheme) -> Option<MessageDigest> {
     match scheme {
         SignatureScheme::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
         SignatureScheme::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
@@ -73,7 +74,7 @@ fn mgf1(scheme: &SignatureScheme) -> Option<MessageDigest> {
     }
 }
 
-fn pss_salt_len(scheme: &SignatureScheme) -> Option<RsaPssSaltlen> {
+fn pss_salt_len(scheme: SignatureScheme) -> Option<RsaPssSaltlen> {
     match scheme {
         SignatureScheme::RSA_PSS_SHA256
         | SignatureScheme::RSA_PSS_SHA384
@@ -83,10 +84,10 @@ fn pss_salt_len(scheme: &SignatureScheme) -> Option<RsaPssSaltlen> {
 }
 
 impl PKey {
-    fn signer(&self, scheme: &SignatureScheme) -> Signer {
+    fn signer(&self, scheme: SignatureScheme) -> Signer {
         Signer {
             key: Arc::clone(&self.0),
-            scheme: *scheme,
+            scheme,
         }
     }
 }
@@ -97,7 +98,7 @@ impl KeyProvider for Provider {
         key_der: PrivateKeyDer<'static>,
     ) -> Result<Arc<dyn SigningKey>, Error> {
         let pkey = openssl::pkey::PKey::private_key_from_der(key_der.secret_der())
-            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))?;
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
         Ok(Arc::new(PKey(Arc::new(pkey))))
     }
 }
@@ -108,7 +109,7 @@ impl SigningKey for PKey {
             SignatureAlgorithm::RSA => RSA_SCHEMES
                 .iter()
                 .find(|scheme| offered.contains(scheme))
-                .map(|scheme| Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>),
+                .map(|scheme| Box::new(self.signer(*scheme)) as Box<dyn rustls::sign::Signer>),
 
             SignatureAlgorithm::ED25519 => {
                 if offered.contains(&SignatureScheme::ED25519) {
@@ -133,7 +134,7 @@ impl SigningKey for PKey {
             SignatureAlgorithm::ECDSA => ECDSA_SCHEMES
                 .iter()
                 .find(|scheme| offered.contains(scheme))
-                .map(|scheme| Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>),
+                .map(|scheme| Box::new(self.signer(*scheme)) as Box<dyn rustls::sign::Signer>),
             _ => None,
         }
     }
@@ -151,26 +152,26 @@ impl SigningKey for PKey {
 
 impl rustls::sign::Signer for Signer {
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, Error> {
-        if let Some(message_digest) = message_digest(&self.scheme) {
+        if let Some(message_digest) = message_digest(self.scheme) {
             openssl::sign::Signer::new(message_digest, &self.key)
                 .and_then(|mut signer| {
-                    if let Some(padding) = rsa_padding(&self.scheme) {
+                    if let Some(padding) = rsa_padding(self.scheme) {
                         signer.set_rsa_padding(padding)?;
                     }
-                    if let Some(mgf1) = mgf1(&self.scheme) {
+                    if let Some(mgf1) = mgf1(self.scheme) {
                         signer.set_rsa_mgf1_md(mgf1)?;
                     }
-                    if let Some(len) = pss_salt_len(&self.scheme) {
+                    if let Some(len) = pss_salt_len(self.scheme) {
                         signer.set_rsa_pss_saltlen(len)?;
                     }
                     signer.update(message)?;
                     signer.sign_to_vec()
                 })
-                .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+                .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
         } else {
             openssl::sign::Signer::new_without_digest(&self.key)
                 .and_then(|mut signer| signer.sign_oneshot_to_vec(message))
-                .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+                .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
         }
     }
 

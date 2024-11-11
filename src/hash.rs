@@ -1,45 +1,45 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
+use alloc::boxed::Box;
 use openssl::{
     hash::MessageDigest,
     sha::{self, sha256, sha384},
 };
-use rustls::crypto::hash::{Context, Hash, Output};
+use rustls::crypto::hash::{Context, Output};
+
+pub(crate) static SHA256: Hash = Hash(HashAlgorithm::SHA256);
+pub(crate) static SHA384: Hash = Hash(HashAlgorithm::SHA384);
+pub(crate) struct Hash(HashAlgorithm);
 
 pub(crate) enum HashAlgorithm {
     SHA256,
     SHA384,
 }
 
-impl HashAlgorithm {
-    pub fn message_digest(&self) -> MessageDigest {
-        match &self {
-            HashAlgorithm::SHA256 => MessageDigest::sha256(),
-            HashAlgorithm::SHA384 => MessageDigest::sha384(),
-        }
-    }
-}
-
-impl Hash for HashAlgorithm {
+impl rustls::crypto::hash::Hash for Hash {
     fn start(&self) -> Box<dyn Context> {
-        match &self {
+        match &self.0 {
             HashAlgorithm::SHA256 => Box::new(Sha256Context(sha::Sha256::new())),
             HashAlgorithm::SHA384 => Box::new(Sha384Context(sha::Sha384::new())),
         }
     }
 
     fn hash(&self, data: &[u8]) -> Output {
-        match &self {
+        match &self.0 {
             HashAlgorithm::SHA256 => Output::new(&sha256(data)[..]),
             HashAlgorithm::SHA384 => Output::new(&sha384(data)[..]),
         }
     }
 
     fn output_len(&self) -> usize {
-        self.message_digest().size()
+        let md = match &self.0 {
+            HashAlgorithm::SHA256 => MessageDigest::sha256(),
+            HashAlgorithm::SHA384 => MessageDigest::sha384(),
+        };
+        md.size()
     }
 
     fn algorithm(&self) -> rustls::crypto::hash::HashAlgorithm {
-        match &self {
+        match &self.0 {
             HashAlgorithm::SHA256 => rustls::crypto::hash::HashAlgorithm::SHA256,
             HashAlgorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
         }

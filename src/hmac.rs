@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use openssl::{
     hash::MessageDigest,
     pkey::{PKey, Private},
@@ -5,11 +6,11 @@ use openssl::{
 };
 use rustls::crypto::hmac::{Hmac, Key, Tag};
 
-pub struct HmacSha256;
-pub struct HmacSha256Key(PKey<Private>);
+pub(crate) struct HmacSha256;
+pub(crate) struct HmacSha256Key(PKey<Private>);
 
-pub struct HmacSha384;
-pub struct HmacSha384Key(PKey<Private>);
+pub(crate) struct HmacSha384;
+pub(crate) struct HmacSha384Key(PKey<Private>);
 
 impl Hmac for HmacSha256 {
     fn with_key(&self, key: &[u8]) -> Box<dyn Key> {

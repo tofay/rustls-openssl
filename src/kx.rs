@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::vec::Vec;
 use openssl::bn::BigNumContext;
 use openssl::derive::Deriver;
 use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
@@ -9,7 +12,7 @@ use openssl::pkey::{PKey, Private, Public};
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use rustls::{Error, NamedGroup};
 
-/// Supported KeyExchange groups.
+/// Supported `KeyExchange` groups.
 /// ```ignore
 /// SECP384R1
 /// SECP256R1
@@ -22,7 +25,7 @@ pub const ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     X25519,
 ];
 
-/// KXGroup's that use openssl::ec module with Nid's for key exchange.
+/// `KXGroup`'s that use `openssl::ec` module with Nid's for key exchange.
 #[derive(Debug)]
 struct EcKxGroup {
     name: NamedGroup,
@@ -79,7 +82,7 @@ impl SupportedKxGroup for EcKxGroup {
                     pub_key,
                 }) as Box<dyn ActiveKeyExchange>)
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn name(&self) -> NamedGroup {
@@ -108,7 +111,7 @@ impl ActiveKeyExchange for EcKeyExchange {
                 let secret = deriver.derive_to_vec()?;
                 Ok(SharedSecret::from(secret.as_slice()))
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn pub_key(&self) -> &[u8] {
