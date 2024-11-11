@@ -76,7 +76,9 @@
 //!
 //! ```rust
 //! use rustls::{ClientConfig, RootCertStore};
-//! use rustls_openssl::{custom_provider, TLS13_AES_128_GCM_SHA256, SECP256R1};
+//! use rustls_openssl::custom_provider;
+//! use rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256;
+//! use rustls_openssl::kx_group::SECP256R1;
 //! use std::sync::Arc;
 //! use webpki_roots;
 //!
@@ -197,7 +199,9 @@ pub fn default_provider() -> CryptoProvider {
 /// Sample usage:
 /// ```rust
 /// use rustls::{ClientConfig, RootCertStore};
-/// use rustls_openssl::{custom_provider, TLS13_AES_128_GCM_SHA256, SECP256R1};
+/// use rustls_openssl::custom_provider;
+/// use rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256;
+/// use rustls_openssl::kx_group::SECP256R1;
 /// use std::sync::Arc;
 /// use webpki_roots;
 ///
