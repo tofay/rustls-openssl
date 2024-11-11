@@ -1,0 +1,86 @@
+From 6cd0908840b87429e95c25a7dfa4658c8e96bc0b Mon Sep 17 00:00:00 2001
+From: Tom Fay <tom@teamfay.co.uk>
+Date: Mon, 11 Nov 2024 21:58:58 +0000
+Subject: [PATCH] Patch openssl into rustls
+
+---
+ rustls/Cargo.toml                | 6 +++++-
+ rustls/src/crypto/mod.rs         | 2 ++
+ rustls/src/test_macros.rs        | 7 +++++++
+ rustls/src/tls13/key_schedule.rs | 3 ++-
+ 4 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/rustls/Cargo.toml b/rustls/Cargo.toml
+index b264ce9a..3290234a 100644
+--- a/rustls/Cargo.toml
++++ b/rustls/Cargo.toml
+@@ -31,9 +31,10 @@ webpki = { package = "rustls-webpki", version = "0.102.8", features = ["alloc"],
+ pki-types = { package = "rustls-pki-types", version = "1.10", features = ["alloc"] }
+ zeroize = "1.7"
+ zlib-rs = { version = "0.3", optional = true }
++openssl = "0.10"
+ 
+ [features]
+-default = ["aws_lc_rs", "logging", "std", "tls12"]
++default = ["aws_lc_rs", "logging", "std", "tls12", "chacha", "x25519"]
+ std = ["webpki/std", "pki-types/std", "once_cell/std"]
+ logging = ["log"]
+ aws_lc_rs = ["dep:aws-lc-rs", "webpki/aws_lc_rs"]
+@@ -45,6 +46,9 @@ tls12 = []
+ read_buf = ["rustversion", "std"]
+ fips = ["aws_lc_rs", "aws-lc-rs?/fips"]
+ zlib = ["dep:zlib-rs"]
++chacha = []
++x25519 = []
++
+ 
+ [dev-dependencies]
+ base64 = "0.22"
+diff --git a/rustls/src/crypto/mod.rs b/rustls/src/crypto/mod.rs
+index d970b545..ccb5424e 100644
+--- a/rustls/src/crypto/mod.rs
++++ b/rustls/src/crypto/mod.rs
+@@ -29,6 +29,8 @@ pub mod ring;
+ #[cfg(feature = "aws_lc_rs")]
+ pub mod aws_lc_rs;
+ 
++pub mod openssl;
++
+ /// TLS message encryption/decryption interfaces.
+ pub mod cipher;
+ 
+diff --git a/rustls/src/test_macros.rs b/rustls/src/test_macros.rs
+index 40a577ee..b6af971f 100644
+--- a/rustls/src/test_macros.rs
++++ b/rustls/src/test_macros.rs
+@@ -18,6 +18,13 @@ macro_rules! test_for_each_provider {
+             use crate::crypto::aws_lc_rs as provider;
+             $($tt)+
+         }
++
++        #[cfg(test)]
++        mod test_with_openssl {
++            use crate::crypto::openssl as provider;
++            $($tt)+
++        }
++
+     };
+ }
+ 
+diff --git a/rustls/src/tls13/key_schedule.rs b/rustls/src/tls13/key_schedule.rs
+index 05aeba67..a124f5d9 100644
+--- a/rustls/src/tls13/key_schedule.rs
++++ b/rustls/src/tls13/key_schedule.rs
+@@ -903,7 +903,8 @@ test_for_each_provider! {
+     use std::prelude::v1::*;
+     use std::vec;
+ 
+-    use provider::ring_like::aead;
++    // Since openssl doesn't have a ring_like module, use aws_lc_rs
++    use crate::crypto::aws_lc_rs::ring_like::aead;
+     use provider::tls13::{
+         TLS13_AES_128_GCM_SHA256_INTERNAL, TLS13_CHACHA20_POLY1305_SHA256_INTERNAL,
+     };
+-- 
+2.33.8
+

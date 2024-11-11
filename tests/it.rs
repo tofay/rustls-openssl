@@ -9,12 +9,7 @@ use rustls::crypto::SupportedKxGroup;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
-use rustls_openssl::{
-    custom_provider, default_provider, SECP256R1, SECP384R1, TLS13_AES_128_GCM_SHA256,
-    TLS13_AES_256_GCM_SHA384,
-};
-#[cfg(feature = "chacha")]
-use rustls_openssl::{TLS13_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256};
+use rustls_openssl::{custom_provider, default_provider};
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
@@ -36,7 +31,7 @@ static OPENSSL_SERVER_PROCESS: once_cell::sync::Lazy<antidote::Mutex<Option<Chil
 const PORT: u32 = 4443;
 
 fn maybe_start_server() -> Option<Child> {
-    if TcpStream::connect(format!("localhost:{}", PORT)).is_ok() {
+    if TcpStream::connect(format!("localhost:{PORT}")).is_ok() {
         eprintln!("Server already running");
         return None;
     }
@@ -110,7 +105,7 @@ fn test_with_config(
 
     let server_name = "localhost".try_into().unwrap();
 
-    let mut sock = TcpStream::connect(format!("localhost:{}", PORT)).unwrap();
+    let mut sock = TcpStream::connect(format!("localhost:{PORT}")).unwrap();
 
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
@@ -191,57 +186,57 @@ fn test_with_custom_config_to_internet(
 
 #[rstest]
 #[case::tls13_aes_128_gcm_sha256(
-    TLS13_AES_128_GCM_SHA256,
-    SECP384R1,
+    rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256,
+    rustls_openssl::kx_group::SECP384R1,
     CipherSuite::TLS13_AES_128_GCM_SHA256
 )]
 #[case::tls13_aes_256_gcm_sha384(
-    TLS13_AES_256_GCM_SHA384,
-    SECP256R1,
+    rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
+    rustls_openssl::kx_group::SECP256R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
     feature = "chacha",
     case::tls13_chacha20_poly1305_sha256(
-        TLS13_CHACHA20_POLY1305_SHA256,
-        SECP256R1,
+        rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
     )
 )]
 #[cfg_attr(
     feature = "tls12",
     case::tls_ecdhe_rsa_with_aes_256_gcm_sha384(
-        rustls_openssl::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        SECP256R1,
+        rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        rustls_openssl::kx_group::SECP256R1,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
     )
 )]
 #[cfg_attr(
     feature = "tls12",
     case::tls_ecdhe_rsa_with_aes_128_gcm_sha256(
-        rustls_openssl::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        SECP256R1,
+        rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
     )
 )]
 #[cfg_attr(
     feature = "x25519",
     case::tls13_aes_256_gcm_sha384_x25519(
-        TLS13_AES_256_GCM_SHA384,
-        rustls_openssl::X25519,
+        rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
+        rustls_openssl::kx_group::X25519,
         CipherSuite::TLS13_AES_256_GCM_SHA384
     )
 )]
 #[case::tls13_aes_256_gcm_sha384_secp384r1(
-    TLS13_AES_256_GCM_SHA384,
-    SECP384R1,
+    rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
+    rustls_openssl::kx_group::SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
     all(feature = "tls12", feature = "chacha"),
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
-        rustls_openssl::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-        SECP256R1,
+        rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     )
 )]
@@ -271,14 +266,14 @@ fn test_tls(
 #[cfg_attr(
     feature = "chacha",
     case(
-        TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-        SECP384R1,
+        rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        rustls_openssl::kx_group::SECP384R1,
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     )
 )]
 #[case::tls13_aes_256_gcm_sha384(
-    TLS13_AES_256_GCM_SHA384,
-    SECP384R1,
+    rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
+    rustls_openssl::kx_group::SECP384R1,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 fn test_to_internet(
@@ -318,7 +313,7 @@ fn test_default_client() {
 
     let server_name = "localhost".try_into().unwrap();
 
-    let mut sock = TcpStream::connect(format!("localhost:{}", PORT)).unwrap();
+    let mut sock = TcpStream::connect(format!("localhost:{PORT}")).unwrap();
 
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
@@ -363,7 +358,7 @@ fn test_rsa_sign_and_verify() {
     let pub_key = private_key.public_key_to_der_pkcs1().unwrap();
 
     for scheme in RSA_SIGNING_SCHEMES {
-        eprintln!("Testing scheme {:?}", scheme);
+        eprintln!("Testing scheme {scheme:?}");
 
         sign_and_verify(
             &ours,
@@ -397,7 +392,7 @@ fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) 
     let rustls_private_key =
         PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem().unwrap()).unwrap();
 
-    eprintln!("private_key: {:?}", rustls_private_key);
+    eprintln!("private_key: {rustls_private_key:?}");
 
     let mut ctx = BigNumContext::new().unwrap();
     let pub_key = private_key

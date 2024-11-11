@@ -1,47 +1,49 @@
-use openssl::{cipher::CipherRef, cipher_ctx::CipherCtx};
-use rustls::crypto::cipher::{AeadKey, Iv, Nonce};
+use alloc::format;
+use openssl::{
+    cipher::{Cipher, CipherRef},
+    cipher_ctx::CipherCtx,
+};
+use rustls::{
+    crypto::cipher::{AeadKey, Iv, Nonce},
+    Error,
+};
 
-pub(crate) struct AeadMessageCrypter {
-    pub algo: AeadAlgorithm,
+pub(crate) struct MessageCrypter {
+    pub algo: Algorithm,
     pub key: AeadKey,
     pub iv: Iv,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum AeadAlgorithm {
+pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
     #[cfg(feature = "chacha")]
     ChaCha20Poly1305,
 }
 
-impl AeadAlgorithm {
-    pub(crate) fn openssl_cipher(&self) -> &'static CipherRef {
-        match self {
-            AeadAlgorithm::Aes128Gcm => openssl::cipher::Cipher::aes_128_gcm(),
-            AeadAlgorithm::Aes256Gcm => openssl::cipher::Cipher::aes_256_gcm(),
-            #[cfg(feature = "chacha")]
-            AeadAlgorithm::ChaCha20Poly1305 => openssl::cipher::Cipher::chacha20_poly1305(),
-        }
-    }
+/// The tag length is 16 bytes for all supported ciphers.
+pub(crate) const TAG_LEN: usize = 16;
 
-    pub(crate) fn tag_len(&self) -> usize {
+impl Algorithm {
+    pub(crate) fn openssl_cipher(self) -> &'static CipherRef {
         match self {
-            AeadAlgorithm::Aes128Gcm | AeadAlgorithm::Aes256Gcm => 16,
+            Self::Aes128Gcm => Cipher::aes_128_gcm(),
+            Self::Aes256Gcm => Cipher::aes_256_gcm(),
             #[cfg(feature = "chacha")]
-            AeadAlgorithm::ChaCha20Poly1305 => 16,
+            Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
         }
     }
 }
 
-impl AeadMessageCrypter {
+impl MessageCrypter {
     /// Encrypts the data in place and returns the tag.
     pub(crate) fn encrypt_in_place(
         &self,
         sequence_number: u64,
         aad: &[u8],
         data: &mut [u8],
-    ) -> Result<Vec<u8>, rustls::Error> {
+    ) -> Result<[u8; TAG_LEN], Error> {
         CipherCtx::new()
             .and_then(|mut ctx| {
                 ctx.encrypt_init(
@@ -57,11 +59,11 @@ impl AeadMessageCrypter {
                 // ... and no more data should be written at the end.
                 let rest = ctx.cipher_final(&mut [])?;
                 debug_assert!(rest == 0);
-                let mut tag = vec![0u8; self.algo.tag_len()];
+                let mut tag = [0u8; TAG_LEN];
                 ctx.tag(&mut tag)?;
                 Ok(tag)
             })
-            .map_err(|e| rustls::Error::General(format!("OpeenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     /// Decrypts in place, verifying the tag and returns the length of the
@@ -72,13 +74,13 @@ impl AeadMessageCrypter {
         sequence_number: u64,
         aad: &[u8],
         data: &mut [u8],
-    ) -> Result<usize, rustls::Error> {
+    ) -> Result<usize, Error> {
         let payload_len = data.len();
-        if payload_len < self.algo.tag_len() {
-            return Err(rustls::Error::DecryptError);
+        if payload_len < TAG_LEN {
+            return Err(Error::DecryptError);
         }
 
-        let (ciphertext, tag) = data.split_at_mut(payload_len - self.algo.tag_len());
+        let (ciphertext, tag) = data.split_at_mut(payload_len - TAG_LEN);
 
         CipherCtx::new()
             .and_then(|mut ctx| {
@@ -95,6 +97,6 @@ impl AeadMessageCrypter {
                 debug_assert!(rest == 0);
                 Ok(count + rest)
             })
-            .map_err(|e| rustls::Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 }

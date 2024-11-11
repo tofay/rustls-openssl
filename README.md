@@ -14,6 +14,8 @@ Supported cipher suites are listed below, in descending order of preference.
 
 ### TLS 1.3
 
+The following cipher suites are supported for TLS 1.3. These support QUIC.
+
 ```
 TLS13_AES_256_GCM_SHA384
 TLS13_AES_128_GCM_SHA256
@@ -40,3 +42,8 @@ SECP384R1
 SECP256R1
 X25519 // Requires the `x25519` feature
 ```
+
+# Tests
+
+In addition to the tests in this repo, CI also runs rustls tests that run against all providers.
+This is done by patching this repo as a module into a rustls checkout repo, hence this repo mirroring the `rustls::crypto::<provider>` module structure.

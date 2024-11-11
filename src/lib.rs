@@ -2,10 +2,6 @@
 //!
 //! A Rustls crypto provider that uses `OpenSSL` for crypto.
 //!
-//! ## Limitations
-//!
-//! - QUIC Protocol: Not supported.
-//!
 //! ## Supported Ciphers
 //!
 //! Supported cipher suites are listed below, ordered by preference. IE: The default configuration prioritizes `TLS13_AES_256_GCM_SHA384` over `TLS13_AES_128_GCM_SHA256`.
@@ -76,7 +72,9 @@
 //!
 //! ```rust
 //! use rustls::{ClientConfig, RootCertStore};
-//! use rustls_openssl::{custom_provider, TLS13_AES_128_GCM_SHA256, SECP256R1};
+//! use rustls_openssl::custom_provider;
+//! use rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256;
+//! use rustls_openssl::kx_group::SECP256R1;
 //! use std::sync::Arc;
 //! use webpki_roots;
 //!
@@ -102,36 +100,52 @@
 //! - `chacha`: Enables ChaCha20-Poly1305 cipher suites for TLS 1.2 and TLS 1.3.
 //! - `x25519`: Enables X25519 key exchange group.
 
+// Mimic rustls code no_std usage.
+#![no_std]
+extern crate alloc;
+extern crate std;
+
+use alloc::vec::Vec;
 use openssl::rand::rand_bytes;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
-mod aead;
-mod cipher_suites;
-mod hash;
-mod hmac;
-mod kx;
+pub(crate) mod aead;
+pub(crate) mod hash;
+pub(crate) mod hmac;
+pub(crate) mod kx;
+pub mod quic;
 mod signer;
 #[cfg(feature = "tls12")]
-mod tls12;
-mod tls13;
+pub(crate) mod tls12;
+pub(crate) mod tls13;
 mod verify;
 
-#[cfg(feature = "tls12")]
-pub use cipher_suites::tls12::{
-    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-};
-#[cfg(all(feature = "tls12", feature = "chacha"))]
-pub use cipher_suites::tls12::{
-    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-};
-#[cfg(feature = "chacha")]
-pub use cipher_suites::tls13::TLS13_CHACHA20_POLY1305_SHA256;
-pub use cipher_suites::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
-#[cfg(feature = "x25519")]
-pub use kx::X25519;
-pub use kx::{ALL_KX_GROUPS, SECP256R1, SECP384R1};
+pub mod cipher_suite {
+    //! All supported cipher suites.
+    #[cfg(feature = "tls12")]
+    pub use super::tls12::{
+        TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    };
+    #[cfg(all(feature = "tls12", feature = "chacha"))]
+    pub use super::tls12::{
+        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    };
+    #[cfg(feature = "chacha")]
+    pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
+    pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
+}
+
+pub use kx::ALL_KX_GROUPS;
+
+/// All supported key exchange groups are exported via the `kx_group` module.
+pub mod kx_group {
+    #[cfg(feature = "x25519")]
+    pub use super::kx::X25519;
+    pub use super::kx::{SECP256R1, SECP384R1};
+}
+
 pub use verify::SUPPORTED_SIG_ALGS;
 
 /// `default_provider` returns a `CryptoProvider` using default and cipher suites.
@@ -181,7 +195,9 @@ pub fn default_provider() -> CryptoProvider {
 /// Sample usage:
 /// ```rust
 /// use rustls::{ClientConfig, RootCertStore};
-/// use rustls_openssl::{custom_provider, TLS13_AES_128_GCM_SHA256, SECP256R1};
+/// use rustls_openssl::custom_provider;
+/// use rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256;
+/// use rustls_openssl::kx_group::SECP256R1;
 /// use std::sync::Arc;
 /// use webpki_roots;
 ///
@@ -243,24 +259,23 @@ pub fn custom_provider(
 /// ```
 pub static DEFAULT_CIPHER_SUITES: &[SupportedCipherSuite] = ALL_CIPHER_SUITES;
 
-static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
-    TLS13_AES_256_GCM_SHA384,
-    TLS13_AES_128_GCM_SHA256,
+pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
+    tls13::TLS13_AES_256_GCM_SHA384,
+    tls13::TLS13_AES_128_GCM_SHA256,
     #[cfg(feature = "chacha")]
-    TLS13_CHACHA20_POLY1305_SHA256,
+    tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
-    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
-    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+    tls12::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
     #[cfg(all(feature = "tls12", feature = "chacha"))]
-    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    tls12::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
-    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    tls12::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
-    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(feature = "chacha")]
+    tls12::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     #[cfg(all(feature = "tls12", feature = "chacha"))]
-    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    tls12::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
 /// Rustls Openssl crypto provider.

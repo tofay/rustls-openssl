@@ -45,3 +45,28 @@ jobs:
         run: cargo fmt -- --check -l
       - name: cargo clippy (warnings)
         run: cargo clippy --all-targets --all-features -- -D warnings
+  rustls_provider_tests:
+    name: Test using rustls provider
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          path: rustls-openssl
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          repository: rustls/rustls
+          path: rustls
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Cache build artifacts
+        uses: Swatinem/rust-cache@v2
+      - name: Patch rustls
+        run: cd rustls && ../rustls-openssl/tests/patch.sh
+      - name: find
+        run: find .
+      - name: cargo test test_with_openssl
+        run: cd rustls && cargo test test_with_openssl
