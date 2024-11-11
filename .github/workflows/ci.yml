@@ -64,9 +64,9 @@ jobs:
           toolchain: stable
       - name: Cache build artifacts
         uses: Swatinem/rust-cache@v2
+      - name: Patch rustls
+        run: cd rustls && ../rustls-openssl/tests/patch.sh
       - name: find
         run: find .
-      - name: Patch rustls
-        run: cd rustls && ../rustls_openssl/tests/patch.sh
       - name: cargo test test_with_openssl
         run: cd rustls && cargo test test_with_openssl
