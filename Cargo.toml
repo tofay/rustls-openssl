@@ -1,7 +1,7 @@
 [package]
 name = "rustls-openssl"
 authors = ["Tom Fay <tom@teamfay.co.uk>"]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Rustls crypto provider for OpenSSL"
@@ -10,7 +10,7 @@ repository = "https://github.com/tofay/rustls-openssl"
 readme = "README.md"
 
 [dependencies]
-openssl = { version = "0.10.68", features = ["vendored"] }
+openssl = "0.10.68"
 rustls = { version = "0.23.0", default-features = false }
 rustls-webpki = { version = "0.102.2", default-features = false }
 
