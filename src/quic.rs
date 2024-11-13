@@ -1,4 +1,4 @@
-use super::aead;
+use crate::aead;
 use alloc::boxed::Box;
 use alloc::format;
 use openssl::symm::{encrypt, Cipher};

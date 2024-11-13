@@ -1,24 +1,37 @@
-From 6cd0908840b87429e95c25a7dfa4658c8e96bc0b Mon Sep 17 00:00:00 2001
+From 8431dc07cc69fda5d6e74f916a1e6ac37a652465 Mon Sep 17 00:00:00 2001
 From: Tom Fay <tom@teamfay.co.uk>
-Date: Mon, 11 Nov 2024 21:58:58 +0000
-Subject: [PATCH] Patch openssl into rustls
+Date: Wed, 13 Nov 2024 22:08:55 +0000
+Subject: [PATCH] Patch openssl provider for testing
 
 ---
- rustls/Cargo.toml                | 6 +++++-
+ .gitignore                       | 1 +
+ rustls/Cargo.toml                | 8 +++++++-
  rustls/src/crypto/mod.rs         | 2 ++
+ rustls/src/lib.rs                | 2 +-
  rustls/src/test_macros.rs        | 7 +++++++
  rustls/src/tls13/key_schedule.rs | 3 ++-
- 4 files changed, 16 insertions(+), 2 deletions(-)
+ 6 files changed, 20 insertions(+), 3 deletions(-)
 
+diff --git a/.gitignore b/.gitignore
+index 0351088b..6dd1392d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,4 @@ admin/rustfmt
+ **/._.DS_Store
+ /.idea
+ /default.profraw
++rustls/src/crypto/openssl/
 diff --git a/rustls/Cargo.toml b/rustls/Cargo.toml
-index b264ce9a..3290234a 100644
+index b264ce9a..606a505f 100644
 --- a/rustls/Cargo.toml
 +++ b/rustls/Cargo.toml
-@@ -31,9 +31,10 @@ webpki = { package = "rustls-webpki", version = "0.102.8", features = ["alloc"],
+@@ -31,9 +31,12 @@ webpki = { package = "rustls-webpki", version = "0.102.8", features = ["alloc"],
  pki-types = { package = "rustls-pki-types", version = "1.10", features = ["alloc"] }
  zeroize = "1.7"
  zlib-rs = { version = "0.3", optional = true }
-+openssl = "0.10"
++openssl = {version = "0.10"}
++openssl-sys = "0.9"
++foreign-types-shared = "0.1.1"
  
  [features]
 -default = ["aws_lc_rs", "logging", "std", "tls12"]
@@ -26,7 +39,7 @@ index b264ce9a..3290234a 100644
  std = ["webpki/std", "pki-types/std", "once_cell/std"]
  logging = ["log"]
  aws_lc_rs = ["dep:aws-lc-rs", "webpki/aws_lc_rs"]
-@@ -45,6 +46,9 @@ tls12 = []
+@@ -45,6 +48,9 @@ tls12 = []
  read_buf = ["rustversion", "std"]
  fips = ["aws_lc_rs", "aws-lc-rs?/fips"]
  zlib = ["dep:zlib-rs"]
@@ -49,6 +62,19 @@ index d970b545..ccb5424e 100644
  /// TLS message encryption/decryption interfaces.
  pub mod cipher;
  
+diff --git a/rustls/src/lib.rs b/rustls/src/lib.rs
+index 05356279..7635521d 100644
+--- a/rustls/src/lib.rs
++++ b/rustls/src/lib.rs
+@@ -311,7 +311,7 @@
+ //!
+ 
+ // Require docs for public APIs, deny unsafe code, etc.
+-#![forbid(unsafe_code, unused_must_use)]
++#![forbid(unused_must_use)]
+ #![cfg_attr(not(any(read_buf, bench)), forbid(unstable_features))]
+ #![warn(
+     clippy::alloc_instead_of_core,
 diff --git a/rustls/src/test_macros.rs b/rustls/src/test_macros.rs
 index 40a577ee..b6af971f 100644
 --- a/rustls/src/test_macros.rs

@@ -112,8 +112,11 @@ use rustls::SupportedCipherSuite;
 
 pub(crate) mod aead;
 pub(crate) mod hash;
+mod hkdf;
 pub(crate) mod hmac;
 pub(crate) mod kx;
+#[cfg(feature = "tls12")]
+mod prf;
 pub mod quic;
 mod signer;
 #[cfg(feature = "tls12")]

@@ -1,4 +1,4 @@
-use super::Provider;
+use crate::Provider;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
