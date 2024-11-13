@@ -1,14 +1,13 @@
-use super::aead;
-use super::hash::{SHA256, SHA384};
-use super::hmac::{HmacSha256, HmacSha384};
-use super::quic;
+use crate::aead;
+use crate::hash::{SHA256, SHA384};
+use crate::hkdf::Hkdf;
+use crate::quic;
 use alloc::boxed::Box;
 use rustls::crypto::cipher::{
     make_tls13_aad, AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, MessageDecrypter,
     MessageEncrypter, OutboundOpaqueMessage, OutboundPlainMessage, PrefixedPayload,
     Tls13AeadAlgorithm, UnsupportedOperationError,
 };
-use rustls::crypto::tls13::HkdfUsingHmac;
 use rustls::crypto::CipherSuiteCommon;
 use rustls::{
     CipherSuite, ConnectionTrafficSecrets, Error, SupportedCipherSuite, Tls13CipherSuite,
@@ -26,7 +25,7 @@ pub static TLS13_CHACHA20_POLY1305_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13Ci
         hash_provider: &SHA256,
         confidentiality_limit: u64::MAX,
     },
-    hkdf_provider: &HkdfUsingHmac(&HmacSha256),
+    hkdf_provider: &Hkdf(SHA256),
     aead_alg: &aead::Algorithm::ChaCha20Poly1305,
     quic: Some(&quic::KeyBuilder {
         packet_algo: aead::Algorithm::ChaCha20Poly1305,
@@ -46,7 +45,7 @@ pub static TLS13_AES_256_GCM_SHA384: SupportedCipherSuite =
             hash_provider: &SHA384,
             confidentiality_limit: 1 << 23,
         },
-        hkdf_provider: &HkdfUsingHmac(&HmacSha384),
+        hkdf_provider: &Hkdf(SHA384),
         aead_alg: &aead::Algorithm::Aes256Gcm,
         quic: Some(&quic::KeyBuilder {
             packet_algo: aead::Algorithm::Aes256Gcm,
@@ -68,7 +67,7 @@ pub static TLS13_AES_128_GCM_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13CipherSu
         hash_provider: &SHA256,
         confidentiality_limit: 1 << 23,
     },
-    hkdf_provider: &HkdfUsingHmac(&HmacSha256),
+    hkdf_provider: &Hkdf(SHA256),
     aead_alg: &aead::Algorithm::Aes128Gcm,
     quic: Some(&quic::KeyBuilder {
         packet_algo: aead::Algorithm::Aes128Gcm,

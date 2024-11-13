@@ -1,89 +1,97 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
 use alloc::boxed::Box;
-use openssl::{
-    hash::MessageDigest,
-    sha::{self, sha256, sha384},
-};
-use rustls::crypto::hash::{Context, Output};
+use openssl::hash::MessageDigest;
+use openssl::md::{Md, MdRef};
+use openssl::sha::{self, sha256, sha384};
+use rustls::crypto::hash::Output;
 
-pub(crate) static SHA256: Hash = Hash(HashAlgorithm::SHA256);
-pub(crate) static SHA384: Hash = Hash(HashAlgorithm::SHA384);
-pub(crate) struct Hash(HashAlgorithm);
+pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
+pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
 
-pub(crate) enum HashAlgorithm {
+/// Supported Hash algorithms.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Algorithm {
     SHA256,
     SHA384,
 }
 
-impl rustls::crypto::hash::Hash for Hash {
-    fn start(&self) -> Box<dyn Context> {
-        match &self.0 {
-            HashAlgorithm::SHA256 => Box::new(Sha256Context(sha::Sha256::new())),
-            HashAlgorithm::SHA384 => Box::new(Sha384Context(sha::Sha384::new())),
+/// A Hash context
+#[derive(Clone)]
+enum Context {
+    Sha256(sha::Sha256),
+    Sha384(sha::Sha384),
+}
+
+impl Algorithm {
+    pub(crate) fn mdref(&self) -> &'static MdRef {
+        match &self {
+            Algorithm::SHA256 => Md::sha256(),
+            Algorithm::SHA384 => Md::sha384(),
+        }
+    }
+
+    pub(crate) fn message_digest(&self) -> MessageDigest {
+        match &self {
+            Algorithm::SHA256 => MessageDigest::sha256(),
+            Algorithm::SHA384 => MessageDigest::sha384(),
+        }
+    }
+}
+
+impl rustls::crypto::hash::Hash for Algorithm {
+    fn start(&self) -> Box<dyn rustls::crypto::hash::Context> {
+        match &self {
+            Algorithm::SHA256 => Box::new(Context::Sha256(sha::Sha256::new())),
+            Algorithm::SHA384 => Box::new(Context::Sha384(sha::Sha384::new())),
         }
     }
 
     fn hash(&self, data: &[u8]) -> Output {
-        match &self.0 {
-            HashAlgorithm::SHA256 => Output::new(&sha256(data)[..]),
-            HashAlgorithm::SHA384 => Output::new(&sha384(data)[..]),
+        match &self {
+            Algorithm::SHA256 => Output::new(&sha256(data)[..]),
+            Algorithm::SHA384 => Output::new(&sha384(data)[..]),
         }
     }
 
     fn output_len(&self) -> usize {
-        let md = match &self.0 {
-            HashAlgorithm::SHA256 => MessageDigest::sha256(),
-            HashAlgorithm::SHA384 => MessageDigest::sha384(),
-        };
-        md.size()
+        self.message_digest().size()
     }
 
     fn algorithm(&self) -> rustls::crypto::hash::HashAlgorithm {
-        match &self.0 {
-            HashAlgorithm::SHA256 => rustls::crypto::hash::HashAlgorithm::SHA256,
-            HashAlgorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
+        match &self {
+            Algorithm::SHA256 => rustls::crypto::hash::HashAlgorithm::SHA256,
+            Algorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
         }
     }
 }
 
-struct Sha256Context(sha::Sha256);
-struct Sha384Context(sha::Sha384);
-
-impl Context for Sha256Context {
-    fn fork_finish(&self) -> Output {
-        let new_context = self.0.clone();
-
-        Output::new(&new_context.finish()[..])
-    }
-
-    fn fork(&self) -> Box<dyn Context> {
-        Box::new(Sha256Context(self.0.clone()))
-    }
-
-    fn finish(self: Box<Self>) -> Output {
-        Output::new(&self.0.finish()[..])
-    }
-
-    fn update(&mut self, data: &[u8]) {
-        self.0.update(data);
+impl Context {
+    fn finish_inner(self) -> Output {
+        match self {
+            Self::Sha256(context) => Output::new(&context.finish()[..]),
+            Self::Sha384(context) => Output::new(&context.finish()[..]),
+        }
     }
 }
 
-impl Context for Sha384Context {
+impl rustls::crypto::hash::Context for Context {
     fn fork_finish(&self) -> Output {
-        let new_context = self.0.clone();
-        Output::new(&new_context.finish()[..])
+        let new_context = Box::new(self.clone());
+        new_context.finish_inner()
     }
 
-    fn fork(&self) -> Box<dyn Context> {
-        Box::new(Sha384Context(self.0.clone()))
+    fn fork(&self) -> Box<dyn rustls::crypto::hash::Context> {
+        Box::new(self.clone())
     }
 
     fn finish(self: Box<Self>) -> Output {
-        Output::new(&self.0.finish()[..])
+        self.finish_inner()
     }
 
     fn update(&mut self, data: &[u8]) {
-        self.0.update(data);
+        match self {
+            Self::Sha256(context) => context.update(data),
+            Self::Sha384(context) => context.update(data),
+        }
     }
 }

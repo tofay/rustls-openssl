@@ -1,6 +1,6 @@
-use super::hash::{SHA256, SHA384};
-use super::hmac::{HmacSha256, HmacSha384};
-use super::signer::{ECDSA_SCHEMES, RSA_SCHEMES};
+use crate::hash::{SHA256, SHA384};
+use crate::prf::Prf;
+use crate::signer::{ECDSA_SCHEMES, RSA_SCHEMES};
 use alloc::boxed::Box;
 use alloc::format;
 use openssl::cipher::{Cipher, CipherRef};
@@ -11,8 +11,8 @@ use rustls::crypto::cipher::{
     PrefixedPayload, Tls12AeadAlgorithm, UnsupportedOperationError,
 };
 use rustls::{
-    crypto::{tls12::PrfUsingHmac, KeyExchangeAlgorithm},
-    CipherSuite, CipherSuiteCommon, SupportedCipherSuite, Tls12CipherSuite,
+    crypto::KeyExchangeAlgorithm, CipherSuite, CipherSuiteCommon, SupportedCipherSuite,
+    Tls12CipherSuite,
 };
 use rustls::{ConnectionTrafficSecrets, Error};
 
@@ -40,7 +40,7 @@ pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
         kx: KeyExchangeAlgorithm::ECDHE,
         sign: ECDSA_SCHEMES,
         aead_alg: &Tls12ChaCha,
-        prf_provider: &PrfUsingHmac(&HmacSha256),
+        prf_provider: &Prf(SHA256),
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
@@ -55,7 +55,7 @@ pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
         kx: KeyExchangeAlgorithm::ECDHE,
         sign: RSA_SCHEMES,
         aead_alg: &Tls12ChaCha,
-        prf_provider: &PrfUsingHmac(&HmacSha256),
+        prf_provider: &Prf(SHA256),
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
@@ -71,7 +71,7 @@ pub static TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
         aead_alg: &Tls12Gcm {
             algo_type: AesGcm::Aes128Gcm,
         },
-        prf_provider: &PrfUsingHmac(&HmacSha256),
+        prf_provider: &Prf(SHA256),
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
@@ -87,7 +87,7 @@ pub static TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         aead_alg: &Tls12Gcm {
             algo_type: AesGcm::Aes256Gcm,
         },
-        prf_provider: &PrfUsingHmac(&HmacSha384),
+        prf_provider: &Prf(SHA384),
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
@@ -103,7 +103,7 @@ pub static TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: SupportedCipherSuite =
         aead_alg: &Tls12Gcm {
             algo_type: AesGcm::Aes128Gcm,
         },
-        prf_provider: &PrfUsingHmac(&HmacSha256),
+        prf_provider: &Prf(SHA256),
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
@@ -119,7 +119,7 @@ pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         aead_alg: &Tls12Gcm {
             algo_type: AesGcm::Aes256Gcm,
         },
-        prf_provider: &PrfUsingHmac(&HmacSha384),
+        prf_provider: &Prf(SHA384),
     });
 
 #[cfg(feature = "chacha")]

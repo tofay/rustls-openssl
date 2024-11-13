@@ -48,6 +48,9 @@ jobs:
   rustls_provider_tests:
     name: Test using rustls provider
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./rustls
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -64,9 +67,11 @@ jobs:
           toolchain: stable
       - name: Cache build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rustls
       - name: Patch rustls
-        run: cd rustls && ../rustls-openssl/tests/patch.sh
+        run: ../rustls-openssl/tests/patch.sh
       - name: find
         run: find .
       - name: cargo test test_with_openssl
-        run: cd rustls && cargo test test_with_openssl
+        run: cargo test test_with_openssl
