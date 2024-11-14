@@ -1,10 +1,9 @@
 use crate::hash::Algorithm as HashAlgorithm;
 use crate::hmac::Hmac;
 use alloc::boxed::Box;
-use openssl::{
-    pkey::Id,
-    pkey_ctx::{HkdfMode, PkeyCtx},
-};
+use openssl::error::ErrorStack;
+use openssl::pkey::Id;
+use openssl::pkey_ctx::{HkdfMode, PkeyCtx, PkeyCtxRef};
 use rustls::crypto::hash::Hash as _;
 use rustls::crypto::hmac::{Hmac as _, Tag};
 use rustls::crypto::tls13::{
@@ -83,9 +82,7 @@ impl RustlsHkdfExpander for HkdfExpander {
                 ctx.set_hkdf_mode(HkdfMode::EXPAND_ONLY)?;
                 ctx.set_hkdf_md(self.hash.mdref())?;
                 ctx.set_hkdf_key(&self.private_key[..self.size])?;
-                for info in info {
-                    ctx.add_hkdf_info(info)?;
-                }
+                add_hkdf_info(&mut ctx, info)?;
                 ctx.derive(Some(output))?;
                 Ok(())
             })
@@ -105,6 +102,25 @@ impl RustlsHkdfExpander for HkdfExpander {
     fn hash_len(&self) -> usize {
         self.hash.output_len()
     }
+}
+
+#[cfg(bugged_add_hkdf_info)]
+fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), ErrorStack> {
+    use alloc::vec::Vec;
+    // Concatenate the info strings to work around https://github.com/openssl/openssl/issues/23448
+    let infos = info.iter().fold(Vec::new(), |mut acc, i| {
+        acc.extend_from_slice(i);
+        acc
+    });
+    ctx.add_hkdf_info(&infos)
+}
+
+#[cfg(not(bugged_add_hkdf_info))]
+fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), ErrorStack> {
+    for info in info {
+        ctx.add_hkdf_info(info)?;
+    }
+    Ok(())
 }
 
 /// Test against rfc5869 test vectors
