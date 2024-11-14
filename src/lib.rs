@@ -5,13 +5,14 @@
 //! ## Supported Ciphers
 //!
 //! Supported cipher suites are listed below, ordered by preference. IE: The default configuration prioritizes `TLS13_AES_256_GCM_SHA384` over `TLS13_AES_128_GCM_SHA256`.
+//! If OpenSSL is compiled with the `OPENSSL_NO_CHACHA` option, the ChaCha20-Poly1305 ciphers will not be available.
 //!
 //! ### TLS 1.3
 //!
 //! ```ignore
 //! TLS13_AES_256_GCM_SHA384
 //! TLS13_AES_128_GCM_SHA256
-//! TLS13_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
+//! TLS13_CHACHA20_POLY1305_SHA256
 //! ```
 //!
 //! ### TLS 1.2
@@ -19,10 +20,10 @@
 //! ```ignore
 //! TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 //! TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-//! TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
+//! TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
 //! TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 //! TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-//! TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 // Requires the `chacha` feature
+//! TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 //! ```
 //! ## Supported Key Exchanges
 //!
@@ -97,7 +98,6 @@
 //!
 //! # Features
 //! The following non-default features are available:
-//! - `chacha`: Enables ChaCha20-Poly1305 cipher suites for TLS 1.2 and TLS 1.3.
 //! - `x25519`: Enables X25519 key exchange group.
 
 // Mimic rustls code no_std usage.
@@ -131,11 +131,11 @@ pub mod cipher_suite {
         TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
         TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     };
-    #[cfg(all(feature = "tls12", feature = "chacha"))]
+    #[cfg(all(feature = "tls12", chacha))]
     pub use super::tls12::{
         TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     };
-    #[cfg(feature = "chacha")]
+    #[cfg(chacha)]
     pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
     pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
@@ -265,19 +265,19 @@ pub static DEFAULT_CIPHER_SUITES: &[SupportedCipherSuite] = ALL_CIPHER_SUITES;
 pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     tls13::TLS13_AES_256_GCM_SHA384,
     tls13::TLS13_AES_128_GCM_SHA256,
-    #[cfg(feature = "chacha")]
+    #[cfg(chacha)]
     tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", feature = "chacha"))]
+    #[cfg(all(feature = "tls12", chacha))]
     tls12::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", feature = "chacha"))]
+    #[cfg(all(feature = "tls12", chacha))]
     tls12::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 

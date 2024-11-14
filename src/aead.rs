@@ -18,7 +18,7 @@ pub(crate) struct MessageCrypter {
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
-    #[cfg(feature = "chacha")]
+    #[cfg(chacha)]
     ChaCha20Poly1305,
 }
 
@@ -30,7 +30,7 @@ impl Algorithm {
         match self {
             Self::Aes128Gcm => Cipher::aes_128_gcm(),
             Self::Aes256Gcm => Cipher::aes_256_gcm(),
-            #[cfg(feature = "chacha")]
+            #[cfg(chacha)]
             Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
         }
     }

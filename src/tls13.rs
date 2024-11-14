@@ -14,11 +14,11 @@ use rustls::{
 };
 
 /// The TLS1.3 ciphersuite `TLS_CHACHA20_POLY1305_SHA256`
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub static TLS13_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls13(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL);
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub static TLS13_CHACHA20_POLY1305_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
@@ -108,7 +108,7 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
         Ok(match self {
             aead::Algorithm::Aes128Gcm => ConnectionTrafficSecrets::Aes128Gcm { key, iv },
             aead::Algorithm::Aes256Gcm => ConnectionTrafficSecrets::Aes256Gcm { key, iv },
-            #[cfg(feature = "chacha")]
+            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => {
                 ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
             }
