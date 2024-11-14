@@ -21,15 +21,15 @@ const GCM_EXPLICIT_NONCE_LENGTH: usize = 8;
 const GCM_IMPLICIT_NONCE_LENGTH: usize = 4;
 const GCM_TAG_LENGTH: usize = 16;
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 const CHACHA_TAG_LENGTH: usize = 16;
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 const CHAHCA_NONCE_LENGTH: usize = 12;
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 const CHACHA_KEY_LENGTH: usize = 32;
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`.
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -44,7 +44,7 @@ pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -122,16 +122,16 @@ pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         prf_provider: &Prf(SHA384),
     });
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub(crate) struct Tls12ChaCha;
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 pub(crate) struct Tls12ChaCha20Poly1305 {
     key: [u8; CHACHA_KEY_LENGTH],
     iv: Iv,
 }
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 impl Tls12AeadAlgorithm for Tls12ChaCha {
     fn encrypter(&self, key: AeadKey, iv: &[u8], _: &[u8]) -> Box<dyn MessageEncrypter> {
         // The caller ensures that the key is the correct length.
@@ -176,7 +176,7 @@ impl Tls12AeadAlgorithm for Tls12ChaCha {
     }
 }
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 impl MessageEncrypter for Tls12ChaCha20Poly1305 {
     fn encrypt(
         &mut self,
@@ -213,7 +213,7 @@ impl MessageEncrypter for Tls12ChaCha20Poly1305 {
     }
 }
 
-#[cfg(feature = "chacha")]
+#[cfg(chacha)]
 impl MessageDecrypter for Tls12ChaCha20Poly1305 {
     fn decrypt<'a>(
         &mut self,

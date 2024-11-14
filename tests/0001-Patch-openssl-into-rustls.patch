@@ -25,7 +25,7 @@ index 2192377f..071d9036 100644
 +
  [features]
 -default = ["aws_lc_rs", "logging", "std", "tls12"]
-+default = ["aws_lc_rs", "logging", "std", "tls12", "chacha", "x25519", "read_buf", "fips", "zlib"]
++default = ["aws_lc_rs", "logging", "std", "tls12", "x25519"]
  std = ["webpki/std", "pki-types/std", "once_cell/std"]
  logging = ["log"]
  aws_lc_rs = ["dep:aws-lc-rs", "webpki/aws_lc_rs"]

@@ -196,7 +196,7 @@ fn test_with_custom_config_to_internet(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    feature = "chacha",
+    chacha,
     case::tls13_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -233,7 +233,7 @@ fn test_with_custom_config_to_internet(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    all(feature = "tls12", feature = "chacha"),
+    all(feature = "tls12", chacha),
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -264,7 +264,7 @@ fn test_tls(
 
 #[rstest]
 #[cfg_attr(
-    feature = "chacha",
+    chacha,
     case(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP384R1,
