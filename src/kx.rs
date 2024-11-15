@@ -3,22 +3,22 @@ use openssl::derive::Deriver;
 use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
 use openssl::pkey::Id;
 use openssl::pkey::{PKey, Private, Public};
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use rustls::{Error, NamedGroup};
 
-/// Supported `KeyExchange` groups.
-/// ```ignore
-/// SECP384R1
-/// SECP256R1
-/// X25519 // Enabled with the `x25519` feature
-/// ```
+/// [Supported KeyExchange groups](SupportedKxGroup).
+/// * [SECP384R1]
+/// * [SECP256R1]
+/// * [X25519]
+///
+/// If the `fips` feature is enabled, only [SECP384R1] and [SECP256R1] are available.
 pub const ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     SECP256R1,
     SECP384R1,
-    #[cfg(feature = "x25519")]
+    #[cfg(not(feature = "fips"))]
     X25519,
 ];
 
@@ -36,26 +36,27 @@ struct EcKeyExchange {
     pub_key: Vec<u8>,
 }
 
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
 /// KXGroup for X25519
 #[derive(Debug)]
 struct X25519KxGroup {}
 
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
 #[derive(Debug)]
 struct X25519KeyExchange {
     private_key: PKey<Private>,
     public_key: Vec<u8>,
 }
 
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
+/// X25519 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8).
 pub const X25519: &dyn SupportedKxGroup = &X25519KxGroup {};
-
+/// secp256r1 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8)
 pub const SECP256R1: &dyn SupportedKxGroup = &EcKxGroup {
     name: NamedGroup::secp256r1,
     nid: Nid::X9_62_PRIME256V1,
 };
-
+/// secp384r1 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8)
 pub const SECP384R1: &dyn SupportedKxGroup = &EcKxGroup {
     name: NamedGroup::secp384r1,
     nid: Nid::SECP384R1,
@@ -84,6 +85,10 @@ impl SupportedKxGroup for EcKxGroup {
 
     fn name(&self) -> NamedGroup {
         self.name
+    }
+
+    fn fips(&self) -> bool {
+        crate::fips()
     }
 }
 
@@ -120,7 +125,7 @@ impl ActiveKeyExchange for EcKeyExchange {
     }
 }
 
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
 impl SupportedKxGroup for X25519KxGroup {
     fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
         PKey::generate_x25519()
@@ -139,7 +144,7 @@ impl SupportedKxGroup for X25519KxGroup {
     }
 }
 
-#[cfg(feature = "x25519")]
+#[cfg(not(feature = "fips"))]
 impl ActiveKeyExchange for X25519KeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
         PKey::public_key_from_raw_bytes(peer_pub_key, Id::X25519)

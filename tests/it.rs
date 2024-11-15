@@ -2,6 +2,7 @@
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use openssl::nid::Nid;
+#[cfg(not(feature = "fips"))]
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
 use rstest::rstest;
@@ -74,6 +75,11 @@ fn test_with_config(
     suite: SupportedCipherSuite,
     group: &'static dyn SupportedKxGroup,
 ) -> CipherSuite {
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::enable_fips();
+    }
+
     let cipher_suites = vec![suite];
     let kx_group = vec![group];
 
@@ -94,14 +100,21 @@ fn test_with_config(
 
     root_store.add_parsable_certificates(certs);
 
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
-        Some(cipher_suites),
-        Some(kx_group),
+    #[allow(unused_mut)]
+    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
+        cipher_suites,
+        kx_group,
     )))
     .with_safe_default_protocol_versions()
     .unwrap()
     .with_root_certificates(root_store)
     .with_no_client_auth();
+
+    #[cfg(feature = "fips")]
+    {
+        config.require_ems = true;
+        assert!(config.fips());
+    }
 
     let server_name = "localhost".try_into().unwrap();
 
@@ -135,6 +148,11 @@ fn test_with_custom_config_to_internet(
     suite: SupportedCipherSuite,
     group: &'static dyn SupportedKxGroup,
 ) -> CipherSuite {
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::enable_fips();
+    }
+
     let cipher_suites = vec![suite];
     let kx_group = vec![group];
 
@@ -143,14 +161,21 @@ fn test_with_custom_config_to_internet(
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
 
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
-        Some(cipher_suites),
-        Some(kx_group),
+    #[allow(unused_mut)]
+    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
+        cipher_suites,
+        kx_group,
     )))
     .with_safe_default_protocol_versions()
     .unwrap()
     .with_root_certificates(root_store)
     .with_no_client_auth();
+
+    #[cfg(feature = "fips")]
+    {
+        config.require_ems = true;
+        assert!(config.fips());
+    }
 
     let server_name = "index.crates.io".try_into().unwrap();
     let mut sock = TcpStream::connect("index.crates.io:443").unwrap();
@@ -196,7 +221,7 @@ fn test_with_custom_config_to_internet(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    chacha,
+    all(chacha, not(feature = "fips")),
     case::tls13_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -220,7 +245,7 @@ fn test_with_custom_config_to_internet(
     )
 )]
 #[cfg_attr(
-    feature = "x25519",
+    not(feature = "fips"),
     case::tls13_aes_256_gcm_sha384_x25519(
         rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
         rustls_openssl::kx_group::X25519,
@@ -233,7 +258,7 @@ fn test_with_custom_config_to_internet(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    all(feature = "tls12", chacha),
+    all(feature = "tls12", chacha, not(feature = "fips")),
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -264,7 +289,7 @@ fn test_tls(
 
 #[rstest]
 #[cfg_attr(
-    chacha,
+    all(chacha, not(feature = "fips")),
     case(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP384R1,
@@ -288,6 +313,11 @@ fn test_to_internet(
 #[test]
 fn test_default_client() {
     let lock = OPENSSL_SERVER_PROCESS.lock();
+    #[cfg(feature = "fips")]
+    {
+        openssl::fips::enable(true).unwrap();
+    }
+
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -305,11 +335,18 @@ fn test_default_client() {
 
     root_store.add_parsable_certificates(certs);
 
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
+    #[allow(unused_mut)]
+    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
         .with_safe_default_protocol_versions()
         .unwrap()
         .with_root_certificates(root_store)
         .with_no_client_auth();
+
+    #[cfg(feature = "fips")]
+    {
+        config.require_ems = true;
+        assert!(config.fips());
+    }
 
     let server_name = "localhost".try_into().unwrap();
 
@@ -419,6 +456,7 @@ fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) 
     );
 }
 
+#[cfg(not(feature = "fips"))]
 #[test]
 fn test_ed25119_sign_and_verify() {
     let ours = rustls_openssl::default_provider();
@@ -478,4 +516,12 @@ fn sign_and_verify(
     assert!(algs
         .iter()
         .any(|alg| { alg.verify_signature(pub_key, data, &signature).is_ok() }));
+}
+
+#[cfg(feature = "fips")]
+#[test]
+fn provider_is_fips() {
+    rustls_openssl::enable_fips();
+    let provider = rustls_openssl::default_provider();
+    assert!(provider.fips());
 }

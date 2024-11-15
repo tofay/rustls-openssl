@@ -43,6 +43,10 @@ impl rustls::crypto::tls12::Prf for Prf {
             })
             .expect("HDKF-Extract failed");
     }
+
+    fn fips(&self) -> bool {
+        crate::fips()
+    }
 }
 
 // rust-openssl doesn't expose tls1_prf function yet: https://github.com/sfackler/rust-openssl/pull/2329

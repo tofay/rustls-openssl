@@ -15,6 +15,7 @@ use rustls::{
 };
 use webpki::alg_id;
 
+/// A [WebPkiSupportedAlgorithms] value defining the supported signature algorithms.
 pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
     all: &[
         ECDSA_P256_SHA256,
@@ -24,6 +25,7 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
         ECDSA_P521_SHA256,
         ECDSA_P521_SHA384,
         ECDSA_P521_SHA512,
+        #[cfg(not(feature = "fips"))]
         ED25519,
         RSA_PSS_SHA512,
         RSA_PSS_SHA384,
@@ -43,6 +45,7 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
             &[ECDSA_P256_SHA256, ECDSA_P384_SHA256, ECDSA_P521_SHA256],
         ),
         (SignatureScheme::ECDSA_NISTP521_SHA512, &[ECDSA_P521_SHA512]),
+        #[cfg(not(feature = "fips"))]
         (SignatureScheme::ED25519, &[ED25519]),
         (SignatureScheme::RSA_PSS_SHA512, &[RSA_PSS_SHA512]),
         (SignatureScheme::RSA_PSS_SHA384, &[RSA_PSS_SHA384]),
@@ -53,48 +56,43 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
     ],
 };
 
-/// RSA PKCS#1 1.5 signatures using SHA-256 for keys of 2048-8192 bits.
+/// RSA PKCS#1 1.5 signatures using SHA-256.
 pub(crate) static RSA_PKCS1_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA256,
 };
 
-/// RSA PKCS#1 1.5 signatures using SHA-384 for keys of 2048-8192 bits.
+/// RSA PKCS#1 1.5 signatures using SHA-384.
 pub(crate) static RSA_PKCS1_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA384,
 };
 
-/// RSA PKCS#1 1.5 signatures using SHA-512 for keys of 2048-8192 bits.
+/// RSA PKCS#1 1.5 signatures using SHA-512.
 pub(crate) static RSA_PKCS1_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA512,
 };
 
-/// RSA PSS signatures using SHA-256
-///
-/// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
+/// RSA PSS signatures using SHA-256.
 pub(crate) static RSA_PSS_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA256,
 };
 
-/// RSA PSS signatures using SHA-384
-///
-/// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
+/// RSA PSS signatures using SHA-384.
 pub(crate) static RSA_PSS_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA384,
 };
 
-/// RSA PSS signatures using SHA-512
-///
-/// [RFC 4055 Section 1.2]: https://tools.ietf.org/html/rfc4055#section-1.2
+/// RSA PSS signatures using SHA-512.
 pub(crate) static RSA_PSS_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA512,
 };
 
+#[cfg(not(feature = "fips"))]
 /// ED25519 signatures according to RFC 8410
 pub(crate) static ED25519: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     public_key_alg_id: alg_id::ED25519,
@@ -284,7 +282,14 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
             Verifier::new_without_digest(&pkey)
                 .and_then(|mut verifier| verifier.verify_oneshot(signature, message))
         }
-        .map_err(|_| InvalidSignature)
+        .map_err(|e| {
+            std::dbg!(e);
+            InvalidSignature
+        })
         .and_then(|valid| if valid { Ok(()) } else { Err(InvalidSignature) })
+    }
+
+    fn fips(&self) -> bool {
+        crate::fips()
     }
 }
