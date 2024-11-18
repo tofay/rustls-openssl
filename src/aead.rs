@@ -7,7 +7,7 @@ use rustls::Error;
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
-    #[cfg(chacha)]
+    #[cfg(all(chacha, not(feature = "fips")))]
     ChaCha20Poly1305,
 }
 
@@ -19,7 +19,7 @@ impl Algorithm {
         match self {
             Self::Aes128Gcm => Cipher::aes_128_gcm(),
             Self::Aes256Gcm => Cipher::aes_256_gcm(),
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
         }
     }

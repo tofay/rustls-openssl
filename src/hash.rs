@@ -62,6 +62,10 @@ impl rustls::crypto::hash::Hash for Algorithm {
             Algorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
         }
     }
+
+    fn fips(&self) -> bool {
+        crate::fips()
+    }
 }
 
 impl Context {

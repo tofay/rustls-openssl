@@ -21,6 +21,10 @@ impl rustls::crypto::hmac::Hmac for Hmac {
     fn hash_output_len(&self) -> usize {
         self.0.output_len()
     }
+
+    fn fips(&self) -> bool {
+        crate::fips()
+    }
 }
 
 impl Key for HmacKey {

@@ -71,6 +71,10 @@ impl RustlsHkdf for Hkdf {
     fn hmac_sign(&self, key: &OkmBlock, message: &[u8]) -> Tag {
         Hmac(self.0).with_key(key.as_ref()).sign(&[message])
     }
+
+    fn fips(&self) -> bool {
+        crate::fips()
+    }
 }
 
 impl RustlsHkdfExpander for HkdfExpander {

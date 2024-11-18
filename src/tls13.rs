@@ -13,11 +13,11 @@ use rustls::{
 };
 
 /// The TLS1.3 ciphersuite `TLS_CHACHA20_POLY1305_SHA256`
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 pub static TLS13_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls13(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL);
 
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 pub static TLS13_CHACHA20_POLY1305_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
@@ -113,11 +113,15 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
         Ok(match self {
             aead::Algorithm::Aes128Gcm => ConnectionTrafficSecrets::Aes128Gcm { key, iv },
             aead::Algorithm::Aes256Gcm => ConnectionTrafficSecrets::Aes256Gcm { key, iv },
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             aead::Algorithm::ChaCha20Poly1305 => {
                 ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
             }
         })
+    }
+
+    fn fips(&self) -> bool {
+        crate::fips()
     }
 }
 

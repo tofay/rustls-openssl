@@ -1,13 +1,15 @@
-use crate::Provider;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
 use openssl::sign::RsaPssSaltlen;
-use rustls::crypto::KeyProvider;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::SigningKey;
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 use std::sync::Arc;
+
+/// A struct that implements [rustls::crypto::KeyProvider].
+#[derive(Debug)]
+pub struct KeyProvider;
 
 /// RSA schemes in descending order of preference
 pub(crate) static RSA_SCHEMES: &[SignatureScheme] = &[
@@ -89,7 +91,7 @@ impl PKey {
     }
 }
 
-impl KeyProvider for Provider {
+impl rustls::crypto::KeyProvider for KeyProvider {
     fn load_private_key(
         &self,
         key_der: PrivateKeyDer<'static>,
@@ -97,6 +99,10 @@ impl KeyProvider for Provider {
         let pkey = openssl::pkey::PKey::private_key_from_der(key_der.secret_der())
             .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
         Ok(Arc::new(PKey(Arc::new(pkey))))
+    }
+
+    fn fips(&self) -> bool {
+        crate::fips()
     }
 }
 

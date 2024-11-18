@@ -2,12 +2,10 @@ use crate::aead::{self, TAG_LEN};
 use crate::hash::{SHA256, SHA384};
 use crate::prf::Prf;
 use crate::signer::{ECDSA_SCHEMES, RSA_SCHEMES};
-#[cfg(chacha)]
-use rustls::crypto::cipher::NONCE_LEN;
 use rustls::crypto::cipher::{
     make_tls12_aad, AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, KeyBlockShape,
     MessageDecrypter, MessageEncrypter, Nonce, OutboundOpaqueMessage, OutboundPlainMessage,
-    PrefixedPayload, Tls12AeadAlgorithm, UnsupportedOperationError,
+    PrefixedPayload, Tls12AeadAlgorithm, UnsupportedOperationError, NONCE_LEN,
 };
 use rustls::{
     crypto::KeyExchangeAlgorithm, CipherSuite, CipherSuiteCommon, SupportedCipherSuite,
@@ -15,12 +13,11 @@ use rustls::{
 };
 use rustls::{ConnectionTrafficSecrets, Error};
 
-const GCM_FULL_NONCE_LENGTH: usize = 12;
 const GCM_EXPLICIT_NONCE_LENGTH: usize = 8;
 const GCM_IMPLICIT_NONCE_LENGTH: usize = 4;
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`.
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -35,7 +32,7 @@ pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -117,7 +114,7 @@ struct AesGcmEncrypter {
     full_iv: Iv,
 }
 
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 pub(crate) struct ChaCha20Poly1305Crypter {
     key: AeadKey,
     iv: Iv,
@@ -127,7 +124,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
     fn encrypter(&self, key: AeadKey, iv: &[u8], extra: &[u8]) -> Box<dyn MessageEncrypter> {
         match self {
             aead::Algorithm::Aes128Gcm | aead::Algorithm::Aes256Gcm => {
-                let mut full_iv = [0u8; GCM_FULL_NONCE_LENGTH];
+                let mut full_iv = [0u8; NONCE_LEN];
                 full_iv[..GCM_IMPLICIT_NONCE_LENGTH].copy_from_slice(iv);
                 full_iv[GCM_IMPLICIT_NONCE_LENGTH..].copy_from_slice(extra);
                 Box::new(AesGcmEncrypter {
@@ -136,7 +133,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     full_iv: Iv::new(full_iv),
                 })
             }
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             aead::Algorithm::ChaCha20Poly1305 => Box::new(ChaCha20Poly1305Crypter {
                 key,
                 iv: Iv::copy(iv),
@@ -156,7 +153,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     implicit_iv,
                 })
             }
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             aead::Algorithm::ChaCha20Poly1305 => Box::new(ChaCha20Poly1305Crypter {
                 key,
                 iv: Iv::copy(iv),
@@ -171,7 +168,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                 fixed_iv_len: GCM_IMPLICIT_NONCE_LENGTH,
                 explicit_nonce_len: GCM_EXPLICIT_NONCE_LENGTH,
             },
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             aead::Algorithm::ChaCha20Poly1305 => KeyBlockShape {
                 enc_key_len: self.key_size(),
                 fixed_iv_len: NONCE_LEN,
@@ -188,7 +185,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
     ) -> Result<ConnectionTrafficSecrets, UnsupportedOperationError> {
         match self {
             aead::Algorithm::Aes128Gcm => {
-                let mut gcm_iv = [0; GCM_FULL_NONCE_LENGTH];
+                let mut gcm_iv = [0; NONCE_LEN];
                 gcm_iv[..GCM_IMPLICIT_NONCE_LENGTH].copy_from_slice(iv);
                 gcm_iv[GCM_IMPLICIT_NONCE_LENGTH..].copy_from_slice(explicit);
                 Ok(ConnectionTrafficSecrets::Aes128Gcm {
@@ -197,7 +194,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                 })
             }
             aead::Algorithm::Aes256Gcm => {
-                let mut gcm_iv = [0; GCM_FULL_NONCE_LENGTH];
+                let mut gcm_iv = [0; NONCE_LEN];
                 gcm_iv[..GCM_IMPLICIT_NONCE_LENGTH].copy_from_slice(iv);
                 gcm_iv[GCM_IMPLICIT_NONCE_LENGTH..].copy_from_slice(explicit);
                 Ok(ConnectionTrafficSecrets::Aes256Gcm {
@@ -205,11 +202,19 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     iv: Iv::new(gcm_iv),
                 })
             }
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             aead::Algorithm::ChaCha20Poly1305 => Ok(ConnectionTrafficSecrets::Chacha20Poly1305 {
                 key,
                 iv: Iv::new(iv[..].try_into().map_err(|_| UnsupportedOperationError)?),
             }),
+        }
+    }
+
+    fn fips(&self) -> bool {
+        match self {
+            aead::Algorithm::Aes128Gcm | aead::Algorithm::Aes256Gcm => crate::fips(),
+            #[cfg(all(chacha, not(feature = "fips")))]
+            aead::Algorithm::ChaCha20Poly1305 => false,
         }
     }
 }
@@ -257,7 +262,7 @@ impl MessageDecrypter for AesGcmDecrypter {
             return Err(Error::DecryptError);
         }
 
-        let mut nonce = [0u8; GCM_FULL_NONCE_LENGTH];
+        let mut nonce = [0u8; NONCE_LEN];
         nonce[..GCM_IMPLICIT_NONCE_LENGTH].copy_from_slice(&self.implicit_iv);
         nonce[GCM_IMPLICIT_NONCE_LENGTH..].copy_from_slice(&payload[..GCM_EXPLICIT_NONCE_LENGTH]);
 
@@ -285,7 +290,7 @@ impl MessageDecrypter for AesGcmDecrypter {
     }
 }
 
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 impl MessageEncrypter for ChaCha20Poly1305Crypter {
     fn encrypt(
         &mut self,
@@ -314,7 +319,7 @@ impl MessageEncrypter for ChaCha20Poly1305Crypter {
     }
 }
 
-#[cfg(chacha)]
+#[cfg(all(chacha, not(feature = "fips")))]
 impl MessageDecrypter for ChaCha20Poly1305Crypter {
     fn decrypt<'a>(
         &mut self,

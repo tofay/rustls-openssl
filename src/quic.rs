@@ -26,7 +26,7 @@ struct PacketKey {
 pub(crate) enum HeaderProtectionAlgorithm {
     Aes128,
     Aes256,
-    #[cfg(chacha)]
+    #[cfg(all(chacha, not(feature = "fips")))]
     ChaCha20,
 }
 
@@ -58,6 +58,10 @@ impl quic::Algorithm for KeyBuilder {
 
     fn aead_key_len(&self) -> usize {
         self.packet_algo.key_size()
+    }
+
+    fn fips(&self) -> bool {
+        crate::fips()
     }
 }
 
@@ -178,7 +182,7 @@ impl HeaderProtectionAlgorithm {
         match self {
             HeaderProtectionAlgorithm::Aes128 => Cipher::aes_128_ecb(),
             HeaderProtectionAlgorithm::Aes256 => Cipher::aes_256_ecb(),
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             HeaderProtectionAlgorithm::ChaCha20 => Cipher::chacha20(),
         }
     }
@@ -194,7 +198,7 @@ impl HeaderProtectionKey {
                     .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
                 mask.copy_from_slice(&block[..5]);
             }
-            #[cfg(chacha)]
+            #[cfg(all(chacha, not(feature = "fips")))]
             // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.4
             HeaderProtectionAlgorithm::ChaCha20 => {
                 let block = encrypt(
@@ -280,7 +284,7 @@ mod test {
         assert_eq!(server_packet[..], expected_server_packet[..]);
     }
 
-    #[cfg(chacha)]
+    #[cfg(all(chacha, not(feature = "fips")))]
     #[test]
     fn test_short_packet_length() {
         use rustls::crypto::cipher::AeadKey;
