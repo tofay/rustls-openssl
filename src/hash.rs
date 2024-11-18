@@ -1,5 +1,4 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
-use alloc::boxed::Box;
 use openssl::hash::MessageDigest;
 use openssl::md::{Md, MdRef};
 use openssl::sha::{self, sha256, sha384};
@@ -23,14 +22,14 @@ enum Context {
 }
 
 impl Algorithm {
-    pub(crate) fn mdref(&self) -> &'static MdRef {
+    pub(crate) fn mdref(self) -> &'static MdRef {
         match &self {
             Algorithm::SHA256 => Md::sha256(),
             Algorithm::SHA384 => Md::sha384(),
         }
     }
 
-    pub(crate) fn message_digest(&self) -> MessageDigest {
+    pub(crate) fn message_digest(self) -> MessageDigest {
         match &self {
             Algorithm::SHA256 => MessageDigest::sha256(),
             Algorithm::SHA384 => MessageDigest::sha384(),

@@ -1,5 +1,4 @@
 use crate::hash::Algorithm;
-use alloc::boxed::Box;
 use openssl::pkey::{PKey, Private};
 use openssl::sign::Signer;
 use rustls::crypto::hash::Hash as _;

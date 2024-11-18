@@ -2,10 +2,9 @@ use crate::aead;
 use crate::hash::{SHA256, SHA384};
 use crate::hkdf::Hkdf;
 use crate::quic;
-use alloc::boxed::Box;
 use rustls::crypto::cipher::{
     make_tls13_aad, AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, MessageDecrypter,
-    MessageEncrypter, OutboundOpaqueMessage, OutboundPlainMessage, PrefixedPayload,
+    MessageEncrypter, Nonce, OutboundOpaqueMessage, OutboundPlainMessage, PrefixedPayload,
     Tls13AeadAlgorithm, UnsupportedOperationError,
 };
 use rustls::crypto::CipherSuiteCommon;
@@ -79,9 +78,15 @@ pub static TLS13_AES_128_GCM_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13CipherSu
     }),
 };
 
+struct Tls13Crypter {
+    algo: aead::Algorithm,
+    key: AeadKey,
+    iv: Iv,
+}
+
 impl Tls13AeadAlgorithm for aead::Algorithm {
     fn encrypter(&self, key: AeadKey, iv: Iv) -> Box<dyn MessageEncrypter> {
-        Box::new(aead::MessageCrypter {
+        Box::new(Tls13Crypter {
             algo: *self,
             key,
             iv,
@@ -89,7 +94,7 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
     }
 
     fn decrypter(&self, key: AeadKey, iv: Iv) -> Box<dyn MessageDecrypter> {
-        Box::new(aead::MessageCrypter {
+        Box::new(Tls13Crypter {
             algo: *self,
             key,
             iv,
@@ -97,7 +102,7 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
     }
 
     fn key_len(&self) -> usize {
-        self.openssl_cipher().key_length()
+        self.key_size()
     }
 
     fn extract_keys(
@@ -116,7 +121,7 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
     }
 }
 
-impl MessageEncrypter for aead::MessageCrypter {
+impl MessageEncrypter for Tls13Crypter {
     fn encrypt(
         &mut self,
         msg: OutboundPlainMessage,
@@ -127,7 +132,12 @@ impl MessageEncrypter for aead::MessageCrypter {
         let aad = make_tls13_aad(total_len);
         payload.extend_from_chunks(&msg.payload);
         payload.extend_from_slice(&msg.typ.to_array());
-        let tag = self.encrypt_in_place(seq, &aad, payload.as_mut())?;
+        let tag = self.algo.encrypt_in_place(
+            self.key.as_ref(),
+            &Nonce::new(&self.iv, seq).0,
+            &aad,
+            payload.as_mut(),
+        )?;
         payload.extend_from_slice(&tag);
         Ok(OutboundOpaqueMessage::new(
             rustls::ContentType::ApplicationData,
@@ -143,7 +153,7 @@ impl MessageEncrypter for aead::MessageCrypter {
     }
 }
 
-impl MessageDecrypter for aead::MessageCrypter {
+impl MessageDecrypter for Tls13Crypter {
     fn decrypt<'a>(
         &mut self,
         mut msg: InboundOpaqueMessage<'a>,
@@ -151,7 +161,12 @@ impl MessageDecrypter for aead::MessageCrypter {
     ) -> Result<InboundPlainMessage<'a>, Error> {
         let payload = &mut msg.payload;
         let aad = make_tls13_aad(payload.len());
-        let plaintext_len = self.decrypt_in_place(seq, &aad, payload.as_mut())?;
+        let plaintext_len = self.algo.decrypt_in_place(
+            self.key.as_ref(),
+            &Nonce::new(&self.iv, seq).0,
+            &aad,
+            payload.as_mut(),
+        )?;
         // Remove the tag from the end of the payload.
         payload.truncate(plaintext_len);
         msg.into_tls13_unpadded_message()
