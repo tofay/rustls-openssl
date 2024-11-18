@@ -1,6 +1,5 @@
 use crate::hash::Algorithm as HashAlgorithm;
 use crate::hmac::Hmac;
-use alloc::boxed::Box;
 use openssl::error::ErrorStack;
 use openssl::pkey::Id;
 use openssl::pkey_ctx::{HkdfMode, PkeyCtx, PkeyCtxRef};
@@ -86,8 +85,7 @@ impl RustlsHkdfExpander for HkdfExpander {
                 ctx.derive(Some(output))?;
                 Ok(())
             })
-            .expect("HDKF-Expand failed");
-        Ok(())
+            .map_err(|_| OutputLengthError)
     }
 
     fn expand_block(&self, info: &[&[u8]]) -> OkmBlock {
@@ -106,7 +104,6 @@ impl RustlsHkdfExpander for HkdfExpander {
 
 #[cfg(bugged_add_hkdf_info)]
 fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), ErrorStack> {
-    use alloc::vec::Vec;
     // Concatenate the info strings to work around https://github.com/openssl/openssl/issues/23448
     let infos = info.iter().fold(Vec::new(), |mut acc, i| {
         acc.extend_from_slice(i);
@@ -123,51 +120,72 @@ fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), Error
     Ok(())
 }
 
-/// Test against rfc5869 test vectors
 #[cfg(test)]
-mod tests {
-    use super::super::hash::SHA256;
-    use super::*;
+mod test {
+    use crate::test::schemas::hkdf::{self, HkdfTestFile};
+    use rustls::crypto::tls13::Hkdf;
+    use std::{fs, path::PathBuf};
 
-    #[test]
-    fn test_hkdf_sha256_basic() {
-        let hkdf = Hkdf(SHA256);
-        let ikm = [
-            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
-            0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
-        ];
-        let salt = [
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
-        ];
-        let info = [0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9];
+    fn test_hkdf(hkdf: &dyn Hkdf, test_file: HkdfTestFile) {
+        for test_group in test_file.test_groups.unwrap() {
+            for test in test_group.tests.unwrap() {
+                let salt = test.salt.as_deref().map(|salt| hex::decode(salt).unwrap());
+                let ikm = test
+                    .ikm
+                    .as_deref()
+                    .map(|ikm| hex::decode(ikm).unwrap())
+                    .unwrap();
+                let expected_okm = test
+                    .okm
+                    .as_deref()
+                    .map(|okm| hex::decode(okm).unwrap())
+                    .unwrap();
+                let info = test.info.as_deref().map(|info| hex::decode(info).unwrap());
 
-        let prk_expander = hkdf.extract_from_secret(Some(&salt), &ikm);
-        let mut okm = [0; 42];
-        prk_expander.expand_slice(&[&info], &mut okm).unwrap();
-        let expected_okm = [
-            0x3c, 0xb2, 0x5f, 0x25, 0xfa, 0xac, 0xd5, 0x7a, 0x90, 0x43, 0x4f, 0x64, 0xd0, 0x36,
-            0x2f, 0x2a, 0x2d, 0x2d, 0x0a, 0x90, 0xcf, 0x1a, 0x5a, 0x4c, 0x5d, 0xb0, 0x2d, 0x56,
-            0xec, 0xc4, 0xc5, 0xbf, 0x34, 0x00, 0x72, 0x08, 0xd5, 0xb8, 0x87, 0x18, 0x58, 0x65,
-        ];
-        assert_eq!(okm.as_ref(), expected_okm);
+                dbg!(&test);
+
+                let prk_expander = hkdf.extract_from_secret(salt.as_deref(), &ikm);
+
+                let mut okm = vec![0; test.size.unwrap().try_into().unwrap()];
+                let res = prk_expander.expand_slice(&[info.as_deref().unwrap_or(&[])], &mut okm);
+
+                match &test.result.unwrap() {
+                    hkdf::Result::Acceptable | hkdf::Result::Valid => {
+                        assert!(res.is_ok());
+                        assert_eq!(okm, expected_okm, "Failed test: {}", test.comment.unwrap());
+                    }
+                    hkdf::Result::Invalid => {
+                        dbg!(&res);
+                        assert!(res.is_err(), "Failed test: {}", test.comment.unwrap())
+                    }
+                }
+            }
+        }
     }
 
     #[test]
-    fn test_hkdf_sha256_extended() {
-        let hkdf = Hkdf(SHA256);
-        let ikm = hex::decode(
-            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
-        )
-        .unwrap();
-        let salt = hex::decode("606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf").unwrap();
-        let info = hex::decode("b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff").unwrap();
-        let expander = hkdf.extract_from_secret(Some(&salt), &ikm);
-        let mut okm = [0u8; 82];
-        expander.expand_slice(&[&info], &mut okm).unwrap();
-        let expected_okm = hex::decode(
-            "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87",
-        )
-        .unwrap();
-        assert_eq!(okm.as_ref(), expected_okm);
+    fn hkdf_sha256() {
+        let suite = crate::cipher_suite::TLS13_AES_128_GCM_SHA256;
+        let hkdf = suite.tls13().unwrap().hkdf_provider;
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("test")
+            .join("vectors")
+            .join("hkdf_sha256_test.json");
+        let tests: HkdfTestFile = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        test_hkdf(hkdf, tests);
+    }
+
+    #[test]
+    fn hkdf_sha384() {
+        let suite = crate::cipher_suite::TLS13_AES_256_GCM_SHA384;
+        let hkdf = suite.tls13().unwrap().hkdf_provider;
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("test")
+            .join("vectors")
+            .join("hkdf_sha384_test.json");
+        let tests: HkdfTestFile = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        test_hkdf(hkdf, tests);
     }
 }

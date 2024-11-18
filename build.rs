@@ -19,7 +19,7 @@ fn main() {
 
     // Enable the `chacha` cfg if the `OPENSSL_NO_CHACHA` OpenSSL config is not set.
     if std::env::var("DEP_OPENSSL_CONF")
-        .map(|conf_string| !conf_string.split(",").any(|conf| conf == OPENSSL_NO_CHACHA))
+        .map(|conf_string| !conf_string.split(',').any(|conf| conf == OPENSSL_NO_CHACHA))
         .unwrap_or(true)
     {
         println!("cargo:rustc-cfg=chacha");

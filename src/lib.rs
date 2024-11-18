@@ -100,28 +100,24 @@
 //! The following non-default features are available:
 //! - `x25519`: Enables X25519 key exchange group.
 
-// Mimic rustls code no_std usage.
-#![no_std]
-extern crate alloc;
-extern crate std;
-
-use alloc::vec::Vec;
 use openssl::rand::rand_bytes;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SecureRandom, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
-pub(crate) mod aead;
-pub(crate) mod hash;
+mod aead;
+mod hash;
 mod hkdf;
-pub(crate) mod hmac;
-pub(crate) mod kx;
+mod hmac;
+mod kx;
 #[cfg(feature = "tls12")]
 mod prf;
-pub mod quic;
+mod quic;
 mod signer;
+#[cfg(test)]
+mod test;
 #[cfg(feature = "tls12")]
-pub(crate) mod tls12;
-pub(crate) mod tls13;
+mod tls12;
+mod tls13;
 mod verify;
 
 pub mod cipher_suite {

@@ -1,9 +1,7 @@
 use crate::aead;
-use alloc::boxed::Box;
-use alloc::format;
 use openssl::symm::{encrypt, Cipher};
 use rustls::{
-    crypto::cipher::{AeadKey, Iv},
+    crypto::cipher::{AeadKey, Iv, Nonce},
     quic, Error,
 };
 
@@ -16,7 +14,9 @@ pub(crate) struct KeyBuilder {
 
 /// A QUIC packet protection key.
 struct PacketKey {
-    crypter: aead::MessageCrypter,
+    algo: aead::Algorithm,
+    key: AeadKey,
+    iv: Iv,
     confidentiality_limit: u64,
     integrity_limit: u64,
 }
@@ -40,13 +40,10 @@ const SAMPLE_LEN: usize = 16;
 
 impl quic::Algorithm for KeyBuilder {
     fn packet_key(&self, key: AeadKey, iv: Iv) -> Box<dyn quic::PacketKey> {
-        let crypter = aead::MessageCrypter {
+        Box::new(PacketKey {
             algo: self.packet_algo,
             key,
             iv,
-        };
-        Box::new(PacketKey {
-            crypter,
             confidentiality_limit: self.confidentiality_limit,
             integrity_limit: self.integrity_limit,
         })
@@ -60,7 +57,7 @@ impl quic::Algorithm for KeyBuilder {
     }
 
     fn aead_key_len(&self) -> usize {
-        self.packet_algo.openssl_cipher().key_length()
+        self.packet_algo.key_size()
     }
 }
 
@@ -71,9 +68,12 @@ impl quic::PacketKey for PacketKey {
         header: &[u8],
         payload: &mut [u8],
     ) -> Result<quic::Tag, Error> {
-        let tag = self
-            .crypter
-            .encrypt_in_place(packet_number, header, payload)?;
+        let tag = self.algo.encrypt_in_place(
+            self.key.as_ref(),
+            &Nonce::new(&self.iv, packet_number).0,
+            header,
+            payload,
+        )?;
         Ok(quic::Tag::from(tag.as_ref()))
     }
 
@@ -83,9 +83,12 @@ impl quic::PacketKey for PacketKey {
         header: &[u8],
         payload: &'a mut [u8],
     ) -> Result<&'a [u8], Error> {
-        let plaintext_len = self
-            .crypter
-            .decrypt_in_place(packet_number, header, payload)?;
+        let plaintext_len = self.algo.decrypt_in_place(
+            self.key.as_ref(),
+            &Nonce::new(&self.iv, packet_number).0,
+            header,
+            payload,
+        )?;
         Ok(&payload[..plaintext_len])
     }
 

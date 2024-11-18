@@ -1,6 +1,3 @@
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::vec::Vec;
 use openssl::bn::BigNumContext;
 use openssl::derive::Deriver;
 use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
@@ -134,7 +131,7 @@ impl SupportedKxGroup for X25519KxGroup {
                     public_key,
                 }) as Box<dyn ActiveKeyExchange>)
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn name(&self) -> NamedGroup {
@@ -152,7 +149,7 @@ impl ActiveKeyExchange for X25519KeyExchange {
                 let secret = deriver.derive_to_vec()?;
                 Ok(SharedSecret::from(secret.as_slice()))
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {}", e)))
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn pub_key(&self) -> &[u8] {
