@@ -21,13 +21,6 @@ pub(crate) static RSA_SCHEMES: &[SignatureScheme] = &[
     SignatureScheme::RSA_PKCS1_SHA256,
 ];
 
-/// All ECDSA signature schemes in descending order of preference
-pub(crate) static ECDSA_SCHEMES: &[SignatureScheme] = &[
-    SignatureScheme::ECDSA_NISTP521_SHA512,
-    SignatureScheme::ECDSA_NISTP384_SHA384,
-    SignatureScheme::ECDSA_NISTP256_SHA256,
-];
-
 #[derive(Debug)]
 struct Signer {
     key: Arc<openssl::pkey::PKey<Private>>,
@@ -134,10 +127,36 @@ impl SigningKey for PKey {
                     None
                 }
             }
-            SignatureAlgorithm::ECDSA => ECDSA_SCHEMES
-                .iter()
-                .find(|scheme| offered.contains(scheme))
-                .map(|scheme| Box::new(self.signer(*scheme)) as Box<dyn rustls::sign::Signer>),
+            SignatureAlgorithm::ECDSA => {
+                // First determine our scheme
+                self.0
+                    .ec_key()
+                    .ok()
+                    .and_then(|ec_key| {
+                        let nid = ec_key.group().curve_name();
+                        let scheme = match nid {
+                            Some(openssl::nid::Nid::X9_62_PRIME256V1) => {
+                                SignatureScheme::ECDSA_NISTP256_SHA256
+                            }
+                            Some(openssl::nid::Nid::SECP384R1) => {
+                                SignatureScheme::ECDSA_NISTP384_SHA384
+                            }
+                            Some(openssl::nid::Nid::SECP521R1) => {
+                                SignatureScheme::ECDSA_NISTP521_SHA512
+                            }
+                            _ => return None,
+                        };
+                        Some(scheme)
+                    })
+                    // Now see if that was offered
+                    .and_then(|scheme| {
+                        if offered.contains(&scheme) {
+                            Some(Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>)
+                        } else {
+                            None
+                        }
+                    })
+            }
             _ => None,
         }
     }

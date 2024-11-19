@@ -1,4 +1,5 @@
-//! Integration tests, based on rustls-symcrypt integration tests
+//! Integration tests
+use crate::server::start_server;
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use openssl::nid::Nid;
@@ -6,109 +7,41 @@ use openssl::nid::Nid;
 use openssl::pkey::PKey;
 use openssl::rsa::Rsa;
 use rstest::rstest;
-use rustls::crypto::SupportedKxGroup;
+use rustls::crypto::{CryptoProvider, SupportedKxGroup};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
 use rustls_openssl::{custom_provider, default_provider};
-use std::env;
-use std::fs::File;
-use std::io::{BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
-use std::process::{Child, Command};
 use std::sync::Arc;
+use webpki::types::CertificateDer;
 
-static TEST_CERT_PATH: once_cell::sync::Lazy<PathBuf> = once_cell::sync::Lazy::new(|| {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests");
-    path.push("certs");
-    path
-});
+pub mod server;
 
-static OPENSSL_SERVER_PROCESS: once_cell::sync::Lazy<antidote::Mutex<Option<Child>>> =
-    once_cell::sync::Lazy::new(|| antidote::Mutex::new(maybe_start_server()));
-
-const PORT: u32 = 4443;
-
-fn maybe_start_server() -> Option<Child> {
-    if TcpStream::connect(format!("localhost:{PORT}")).is_ok() {
-        eprintln!("Server already running");
-        return None;
-    }
-
-    eprintln!("Starting openssl server...");
-
-    // Spawn openssl server
-    // openssl s_server -accept 4443 -cert localhost.crt  -key localhost.key
-
-    let cert_path = TEST_CERT_PATH
-        .join("localhost.pem")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let key_path = TEST_CERT_PATH
-        .join("localhost.key")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    let child = Command::new("openssl")
-        .arg("s_server")
-        .arg("-accept")
-        .arg(PORT.to_string())
-        .arg("-cert")
-        .arg(cert_path)
-        .arg("-key")
-        .arg(key_path)
-        .arg("-quiet")
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .expect("Failed to start OpenSSL server.");
-    // sleep to allow the server to start
-    std::thread::sleep(std::time::Duration::from_secs(1));
-    Some(child)
-}
-
-fn test_with_config(
-    suite: SupportedCipherSuite,
-    group: &'static dyn SupportedKxGroup,
+fn test_with_provider(
+    provider: CryptoProvider,
+    port: u16,
+    root_ca_certs: Vec<CertificateDer<'static>>,
 ) -> CipherSuite {
     #[cfg(feature = "fips")]
     {
         rustls_openssl::enable_fips();
     }
 
-    let cipher_suites = vec![suite];
-    let kx_group = vec![group];
-
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
 
-    let cert_path = TEST_CERT_PATH
-        .join("RootCA.pem")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    let certs = rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_path).unwrap()))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-
-    root_store.add_parsable_certificates(certs);
+    root_store.add_parsable_certificates(root_ca_certs);
 
     #[allow(unused_mut)]
-    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
-        cipher_suites,
-        kx_group,
-    )))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
+    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
 
     #[cfg(feature = "fips")]
     {
@@ -118,7 +51,7 @@ fn test_with_config(
 
     let server_name = "localhost".try_into().unwrap();
 
-    let mut sock = TcpStream::connect(format!("localhost:{PORT}")).unwrap();
+    let mut sock = TcpStream::connect(format!("localhost:{port}")).unwrap();
 
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
@@ -213,11 +146,13 @@ fn test_with_custom_config_to_internet(
 #[case::tls13_aes_128_gcm_sha256(
     rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256,
     rustls_openssl::kx_group::SECP384R1,
+    server::Alg::PKCS_ECDSA_P256_SHA256,
     CipherSuite::TLS13_AES_128_GCM_SHA256
 )]
 #[case::tls13_aes_256_gcm_sha384(
     rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
     rustls_openssl::kx_group::SECP256R1,
+    server::Alg::PKCS_ECDSA_P256_SHA256,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
@@ -225,6 +160,7 @@ fn test_with_custom_config_to_internet(
     case::tls13_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_ECDSA_P256_SHA256,
         CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
     )
 )]
@@ -233,6 +169,7 @@ fn test_with_custom_config_to_internet(
     case::tls_ecdhe_rsa_with_aes_256_gcm_sha384(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
         rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_RSA_SHA384,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
     )
 )]
@@ -241,6 +178,7 @@ fn test_with_custom_config_to_internet(
     case::tls_ecdhe_rsa_with_aes_128_gcm_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_RSA_SHA384,
         CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
     )
 )]
@@ -249,12 +187,14 @@ fn test_with_custom_config_to_internet(
     case::tls13_aes_256_gcm_sha384_x25519(
         rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
         rustls_openssl::kx_group::X25519,
+        server::Alg::PKCS_ECDSA_P256_SHA256,
         CipherSuite::TLS13_AES_256_GCM_SHA384
     )
 )]
 #[case::tls13_aes_256_gcm_sha384_secp384r1(
     rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
     rustls_openssl::kx_group::SECP384R1,
+    server::Alg::PKCS_ECDSA_P256_SHA256,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
@@ -262,34 +202,59 @@ fn test_with_custom_config_to_internet(
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_RSA_SHA384,
         CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     )
 )]
-// TODO: setup ECDSA certs
-// #[case::tls_ecdhe_ecdsa_with_aes_256_gcm_sha384(
-//     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-//     SECP384R1,
-//     CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-// )]
-// #[case::tls_ecdhe_ecdsa_with_aes_128_gcm_sha256(
-//     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-//     SECP256R1,
-//     CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-// )]
-fn test_tls(
+#[cfg_attr(
+    feature = "tls12",
+    case::tls_ecdhe_ecdsa_with_aes_128_gcm_sha256(
+        rustls_openssl::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_ECDSA_P256_SHA256,
+        CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    )
+)]
+#[cfg_attr(
+    all(feature = "tls12", not(feature = "fips")),
+    case::ed25519_tls12(
+        rustls_openssl::cipher_suite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_ED25519,
+        CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    )
+)]
+#[cfg_attr(
+    all(feature = "tls12", not(feature = "fips")),
+    case::tls_ecdhe_rsa_with_aes_256_gcm_sha384(
+        rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        rustls_openssl::kx_group::X25519,
+        server::Alg::PKCS_RSA_SHA384,
+        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    )
+)]
+#[case::tls13_aes_256_gcm_sha384_secp384r1(
+    rustls_openssl::cipher_suite::TLS13_AES_256_GCM_SHA384,
+    rustls_openssl::kx_group::SECP384R1,
+    server::Alg::PKCS_RSA_SHA512,
+    CipherSuite::TLS13_AES_256_GCM_SHA384
+)]
+fn test_client_and_server(
     #[case] suite: SupportedCipherSuite,
     #[case] group: &'static dyn SupportedKxGroup,
+    #[case] alg: server::Alg,
     #[case] expected: CipherSuite,
 ) {
-    let lock = OPENSSL_SERVER_PROCESS.lock();
-    let actual_suite = test_with_config(suite, group);
+    // Run against a server using our default provider
+    let (port, certificate) = start_server(alg);
+    let provider = custom_provider(vec![suite], vec![group]);
+    let actual_suite = test_with_provider(provider, port, vec![certificate]);
     assert_eq!(actual_suite, expected);
-    drop(lock);
 }
 
 #[rstest]
 #[cfg_attr(
-    all(chacha, not(feature = "fips")),
+    all(feature = "tls12", chacha, not(feature = "fips")),
     case(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP384R1,
@@ -310,69 +275,17 @@ fn test_to_internet(
     assert_eq!(actual, expected);
 }
 
+/// Test that the default provider returns the highest priority cipher suite
 #[test]
 fn test_default_client() {
-    let lock = OPENSSL_SERVER_PROCESS.lock();
     #[cfg(feature = "fips")]
     {
-        openssl::fips::enable(true).unwrap();
+        rustls_openssl::enable_fips();
     }
 
-    // Add default webpki roots to the root store
-    let mut root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-
-    let cert_path = TEST_CERT_PATH
-        .join("RootCA.pem")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-
-    let certs = rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_path).unwrap()))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-
-    root_store.add_parsable_certificates(certs);
-
-    #[allow(unused_mut)]
-    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
-        .with_safe_default_protocol_versions()
-        .unwrap()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-
-    #[cfg(feature = "fips")]
-    {
-        config.require_ems = true;
-        assert!(config.fips());
-    }
-
-    let server_name = "localhost".try_into().unwrap();
-
-    let mut sock = TcpStream::connect(format!("localhost:{PORT}")).unwrap();
-
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-    tls.write_all(
-        concat!(
-            "GET / HTTP/1.1\r\n",
-            "Host: localhost\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: identity\r\n",
-            "\r\n"
-        )
-        .as_bytes(),
-    )
-    .unwrap();
-
-    let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
-
-    let exit_buffer: [u8; 1] = [b'q'];
-    tls.write_all(&exit_buffer).unwrap();
-
-    assert_eq!(ciphersuite.suite(), CipherSuite::TLS13_AES_256_GCM_SHA384);
-    drop(lock);
+    let (port, certificate) = start_server(server::Alg::PKCS_RSA_SHA512);
+    let actual_suite = test_with_provider(default_provider(), port, vec![certificate]);
+    assert_eq!(actual_suite, CipherSuite::TLS13_AES_256_GCM_SHA384);
 }
 
 static RSA_SIGNING_SCHEMES: &[SignatureScheme] = &[
