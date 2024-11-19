@@ -64,8 +64,9 @@ jobs:
           toolchain: stable
       - name: Cache build artifacts
         uses: Swatinem/rust-cache@v2
+      # Use single thread on FIPS to avoid running out of entropy
       - name: Run cargo test --features fips
-        run: cargo test --features fips
+        run: cargo test --tests --features fips -- --test-threads=1
 
   test-fips-openssl-3:
     name: Test using FIPS openssl 3
@@ -84,4 +85,4 @@ jobs:
       - name: Cache build artifacts
         uses: Swatinem/rust-cache@v2
       - name: Run cargo test --features fips
-        run: cargo test --features fips
+        run: cargo test --tests --features fips -- --test-threads=1
