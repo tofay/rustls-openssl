@@ -77,71 +77,6 @@ fn test_with_provider(
     ciphersuite.suite()
 }
 
-fn test_with_custom_config_to_internet(
-    suite: SupportedCipherSuite,
-    group: &'static dyn SupportedKxGroup,
-) -> CipherSuite {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
-    let cipher_suites = vec![suite];
-    let kx_group = vec![group];
-
-    // Add default webpki roots to the root store
-    let root_store = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-
-    #[allow(unused_mut)]
-    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
-        cipher_suites,
-        kx_group,
-    )))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
-
-    #[cfg(feature = "fips")]
-    {
-        config.require_ems = true;
-        assert!(config.fips());
-    }
-
-    let server_name = "index.crates.io".try_into().unwrap();
-    let mut sock = TcpStream::connect("index.crates.io:443").unwrap();
-
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-
-    tls.write_all(
-        concat!(
-            "GET /config.json HTTP/1.1\r\n",
-            "Host: index.crates.io\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: identity\r\n",
-            "\r\n"
-        )
-        .as_bytes(),
-    )
-    .unwrap();
-
-    let mut buf = Vec::new();
-    tls.read_to_end(&mut buf).unwrap();
-    assert!(String::from_utf8_lossy(&buf).contains("https://static.crates.io/crates"));
-
-    let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
-
-    let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "Q" is a single byte command
-    exit_buffer[0] = b'q'; // Assign the ASCII value of "Q" to the buffer
-
-    // Write the "Q" command to the TLS connection stream
-    tls.write_all(&exit_buffer).unwrap();
-    ciphersuite.suite()
-}
-
 #[rstest]
 #[case::tls13_aes_128_gcm_sha256(
     rustls_openssl::cipher_suite::TLS13_AES_128_GCM_SHA256,
@@ -271,8 +206,65 @@ fn test_to_internet(
     #[case] group: &'static dyn SupportedKxGroup,
     #[case] expected: CipherSuite,
 ) {
-    let actual = test_with_custom_config_to_internet(suite, group);
-    assert_eq!(actual, expected);
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::fips::enable();
+    }
+
+    let cipher_suites = vec![suite];
+    let kx_group = vec![group];
+
+    // Add default webpki roots to the root store
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+
+    #[allow(unused_mut)]
+    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(custom_provider(
+        cipher_suites,
+        kx_group,
+    )))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
+
+    #[cfg(feature = "fips")]
+    {
+        config.require_ems = true;
+        assert!(config.fips());
+    }
+
+    let server_name = "index.crates.io".try_into().unwrap();
+    let mut sock = TcpStream::connect("index.crates.io:443").unwrap();
+
+    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+
+    tls.write_all(
+        concat!(
+            "GET /config.json HTTP/1.1\r\n",
+            "Host: index.crates.io\r\n",
+            "Connection: close\r\n",
+            "Accept-Encoding: identity\r\n",
+            "\r\n"
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+
+    let mut buf = Vec::new();
+    tls.read_to_end(&mut buf).unwrap();
+    assert!(String::from_utf8_lossy(&buf).contains("https://static.crates.io/crates"));
+
+    let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
+
+    let mut exit_buffer: [u8; 1] = [0]; // Size 1 because "Q" is a single byte command
+    exit_buffer[0] = b'q'; // Assign the ASCII value of "Q" to the buffer
+
+    // Write the "Q" command to the TLS connection stream
+    tls.write_all(&exit_buffer).unwrap();
+    assert_eq!(ciphersuite.suite(), expected);
 }
 
 /// Test that the default provider returns the highest priority cipher suite
@@ -294,6 +286,10 @@ static RSA_SIGNING_SCHEMES: &[SignatureScheme] = &[
 
 #[test]
 fn test_rsa_sign_and_verify() {
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::fips::enable();
+    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
@@ -328,6 +324,10 @@ fn test_rsa_sign_and_verify() {
 #[case::ecdsa_nistp521_sha512(SignatureScheme::ECDSA_NISTP521_SHA512, Nid::SECP521R1)]
 
 fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) {
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::fips::enable();
+    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
