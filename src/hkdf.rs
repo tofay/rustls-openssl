@@ -73,7 +73,7 @@ impl RustlsHkdf for Hkdf {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

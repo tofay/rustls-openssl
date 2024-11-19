@@ -26,7 +26,7 @@ fn test_with_provider(
 ) -> CipherSuite {
     #[cfg(feature = "fips")]
     {
-        rustls_openssl::enable_fips();
+        rustls_openssl::fips::enable();
     }
 
     // Add default webpki roots to the root store
@@ -83,7 +83,7 @@ fn test_with_custom_config_to_internet(
 ) -> CipherSuite {
     #[cfg(feature = "fips")]
     {
-        rustls_openssl::enable_fips();
+        rustls_openssl::fips::enable();
     }
 
     let cipher_suites = vec![suite];
@@ -278,11 +278,6 @@ fn test_to_internet(
 /// Test that the default provider returns the highest priority cipher suite
 #[test]
 fn test_default_client() {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::enable_fips();
-    }
-
     let (port, certificate) = start_server(server::Alg::PKCS_RSA_SHA512);
     let actual_suite = test_with_provider(default_provider(), port, vec![certificate]);
     assert_eq!(actual_suite, CipherSuite::TLS13_AES_256_GCM_SHA384);
@@ -434,7 +429,7 @@ fn sign_and_verify(
 #[cfg(feature = "fips")]
 #[test]
 fn provider_is_fips() {
-    rustls_openssl::enable_fips();
+    rustls_openssl::fips::enable();
     let provider = rustls_openssl::default_provider();
     assert!(provider.fips());
 }

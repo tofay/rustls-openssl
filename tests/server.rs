@@ -27,6 +27,11 @@ pub enum Alg {
 ///
 /// Returns the port the server is listening on and the CA certificate used to sign the server certificate.
 pub fn start_server(alg: Alg) -> (u16, CertificateDer<'static>) {
+    #[cfg(feature = "fips")]
+    {
+        rustls_openssl::fips::enable();
+    }
+
     let pki = TestPki::for_algorithm(alg);
     let ca_cert_der = pki.ca_cert_der.clone();
     let server_config = pki.server_config();

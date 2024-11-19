@@ -52,30 +52,11 @@
 //!
 //! # Features
 //! - `tls12`: Enables TLS 1.2 cipher suites. Enabled by default.
-//! - `fips`: Enabling this feature removes non-FIPS-approved cipher suites and key exchanges. Disabled by default.
-//!
-//! # FIPS
-//!
-//! To use rustls with OpenSSL in FIPS mode, perform the following actions.
-//!
-//! ## 1. Enable the FIPS feature
-//!
-//! This removes non-FIPS-approved cipher suites and key exchanges.
-//!
-//! ## 2. Specify `require_ems` when constructing [rustls::ClientConfig] or [rustls::ServerConfig]
-//!
-//! See [rustls documentation](https://docs.rs/rustls/latest/rustls/client/struct.ClientConfig.html#structfield.require_ems) for rationale.
-//!
-//! ## 3. Enable FIPS mode for OpenSSL
-//!
-//! [enable_fips()] can be used to enable FIPS mode for OpenSSL without users needing to depend on the [openssl] crate directly.
-//! This calls [openssl::fips::enable](https://github.com/sfackler/rust-openssl/blob/538a5cb737e8d83085553cac01643820dc7ff205/openssl/src/fips.rs#L12), panicking if that fails.
-
-//! ## 4. Validate the FIPS status of your ClientConfig or ServerConfig at runtime
-//! See [rustls documenation on FIPS](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html#3-validate-the-fips-status-of-your-clientconfigserverconfig-at-run-time).
+//! - `fips`: Enabling this feature removes non-FIPS-approved cipher suites and key exchanges. Disabled by default. See [fips].
 #![warn(missing_docs)]
-
-use openssl::rand::rand_bytes;
+use openssl::error::ErrorStack;
+use openssl::rand::rand_priv_bytes;
+use openssl_sys::c_int;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
@@ -238,28 +219,89 @@ pub struct SecureRandom;
 
 impl rustls::crypto::SecureRandom for SecureRandom {
     fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {
-        rand_bytes(buf).map_err(|_| GetRandomFailed)
+        rand_priv_bytes(buf).map_err(|_| GetRandomFailed)
     }
 
     fn fips(&self) -> bool {
-        fips()
+        fips::enabled()
     }
 }
 
-/// Returns `true` if OpenSSL is running in FIPS mode.
-#[cfg(fips_module)]
-pub(crate) fn fips() -> bool {
-    openssl::fips::enabled()
-}
-#[cfg(not(fips_module))]
-pub(crate) fn fips() -> bool {
-    false
+pub(crate) fn cvt(r: c_int) -> Result<i32, ErrorStack> {
+    if r <= 0 {
+        Err(ErrorStack::get())
+    } else {
+        Ok(r)
+    }
 }
 
-/// Enable FIPS mode for OpenSSL.
-///
-/// Panics if FIPS mode cannot be enabled.
-#[cfg(all(fips_module, feature = "fips"))]
-pub fn enable_fips() {
-    openssl::fips::enable(true).expect("Failed to enable FIPS mode.");
+pub mod fips {
+    //! # FIPS support
+    //!
+    //! To use rustls with OpenSSL in FIPS mode, perform the following actions.
+    //!
+    //! ## 1. Enable the `fips` feature
+    //!
+    //! This removes non-FIPS-approved cipher suites and key exchanges.
+    //!
+    //! ## 2. Specify `require_ems` when constructing [rustls::ClientConfig] or [rustls::ServerConfig]
+    //!
+    //! See [rustls documentation](https://docs.rs/rustls/latest/rustls/client/struct.ClientConfig.html#structfield.require_ems) for rationale.
+    //!
+    //! ## 3. Enable FIPS mode for OpenSSL
+    //!
+    //! See [enable()].
+    //!
+    //! ## 4. Validate the FIPS status of your ClientConfig or ServerConfig at runtime
+    //! See [rustls documenation on FIPS](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html#3-validate-the-fips-status-of-your-clientconfigserverconfig-at-run-time).
+
+    /// Returns `true` if OpenSSL is running in FIPS mode.
+    #[cfg(fips_module)]
+    pub(crate) fn enabled() -> bool {
+        openssl::fips::enabled()
+    }
+    #[cfg(not(fips_module))]
+    pub(crate) fn enabled() -> bool {
+        unsafe { openssl_sys::EVP_default_properties_is_fips_enabled(std::ptr::null_mut()) == 1 }
+    }
+
+    /// Enable FIPS mode for OpenSSL.
+    ///
+    /// This should be called on application startup before the provider is used.
+    ///
+    /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
+    /// On OpenSSL 3 this loads a FIPS provider, which must be available.
+    ///
+    /// Panics if FIPS cannot be enabled
+    #[cfg(fips_module)]
+    pub fn enable() {
+        openssl::fips::enable(true).expect("Failed to enable FIPS mode.");
+    }
+
+    /// Enable FIPS mode for OpenSSL.
+    ///
+    /// This should be called on application startup before the provider is used.
+    ///
+    /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
+    /// On OpenSSL 3 this loads a FIPS provider, which must be available.
+    ///
+    /// Panics if FIPS cannot be enabled
+    #[cfg(not(fips_module))]
+    pub fn enable() {
+        // Use OnceCell to ensure that the provider is only loaded once
+        use once_cell::sync::OnceCell;
+        static PROVIDER: OnceCell<openssl::provider::Provider> = OnceCell::new();
+        PROVIDER.get_or_init(|| {
+            let provider = openssl::provider::Provider::load(None, "fips")
+                .expect("Failed to load FIPS provider.");
+            unsafe {
+                crate::cvt(openssl_sys::EVP_default_properties_enable_fips(
+                    std::ptr::null_mut(),
+                    1,
+                ))
+                .expect("Failed to enable FIPS properties.");
+            }
+            provider
+        });
+    }
 }

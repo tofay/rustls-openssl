@@ -64,7 +64,7 @@ impl rustls::crypto::hash::Hash for Algorithm {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

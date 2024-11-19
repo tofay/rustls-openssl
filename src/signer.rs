@@ -95,7 +95,7 @@ impl rustls::crypto::KeyProvider for KeyProvider {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

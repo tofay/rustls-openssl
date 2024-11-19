@@ -61,7 +61,7 @@ impl quic::Algorithm for KeyBuilder {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

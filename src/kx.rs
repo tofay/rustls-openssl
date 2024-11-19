@@ -88,7 +88,7 @@ impl SupportedKxGroup for EcKxGroup {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 
