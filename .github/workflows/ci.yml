@@ -45,6 +45,8 @@ jobs:
         run: cargo fmt -- --check -l
       - name: cargo clippy (warnings)
         run: cargo clippy --all-targets -- -D warnings
+      - name: cargo clippy --no-default-features (warnings)
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
 
   test-fips:
     name: Test using FIPS openssl

@@ -58,36 +58,42 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
 
 /// RSA PKCS#1 1.5 signatures using SHA-256.
 pub(crate) static RSA_PKCS1_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PKCS1_SHA256",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA256,
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-384.
 pub(crate) static RSA_PKCS1_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PKCS1_SHA384",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA384,
 };
 
 /// RSA PKCS#1 1.5 signatures using SHA-512.
 pub(crate) static RSA_PKCS1_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PKCS1_SHA512",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PKCS1_SHA512,
 };
 
 /// RSA PSS signatures using SHA-256.
 pub(crate) static RSA_PSS_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PSS_SHA256",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA256,
 };
 
 /// RSA PSS signatures using SHA-384.
 pub(crate) static RSA_PSS_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PSS_SHA384",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA384,
 };
 
 /// RSA PSS signatures using SHA-512.
 pub(crate) static RSA_PSS_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "RSA_PSS_SHA512",
     public_key_alg_id: alg_id::RSA_ENCRYPTION,
     signature_alg_id: alg_id::RSA_PSS_SHA512,
 };
@@ -95,63 +101,73 @@ pub(crate) static RSA_PSS_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSsl
 #[cfg(not(feature = "fips"))]
 /// ED25519 signatures according to RFC 8410
 pub(crate) static ED25519: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ED25519",
     public_key_alg_id: alg_id::ED25519,
     signature_alg_id: alg_id::ED25519,
 };
 
 /// ECDSA signatures using the P-256 curve and SHA-256.
 pub(crate) static ECDSA_P256_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P256_SHA256",
     public_key_alg_id: alg_id::ECDSA_P256,
     signature_alg_id: alg_id::ECDSA_SHA256,
 };
 
 /// ECDSA signatures using the P-256 curve and SHA-384. Deprecated.
 pub(crate) static ECDSA_P256_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P256_SHA384",
     public_key_alg_id: alg_id::ECDSA_P256,
     signature_alg_id: alg_id::ECDSA_SHA384,
 };
 
 /// ECDSA signatures using the P-384 curve and SHA-256. Deprecated.
 pub(crate) static ECDSA_P384_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P384_SHA256",
     public_key_alg_id: alg_id::ECDSA_P384,
     signature_alg_id: alg_id::ECDSA_SHA256,
 };
 
 /// ECDSA signatures using the P-384 curve and SHA-384.
 pub(crate) static ECDSA_P384_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P384_SHA384",
     public_key_alg_id: alg_id::ECDSA_P384,
     signature_alg_id: alg_id::ECDSA_SHA384,
 };
 
 /// ECDSA signatures using the P-521 curve and SHA-256.
 pub(crate) static ECDSA_P521_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P521_SHA256",
     public_key_alg_id: alg_id::ECDSA_P521,
     signature_alg_id: alg_id::ECDSA_SHA256,
 };
 
 /// ECDSA signatures using the P-521 curve and SHA-384.
 pub(crate) static ECDSA_P521_SHA384: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P521_SHA384",
     public_key_alg_id: alg_id::ECDSA_P521,
     signature_alg_id: alg_id::ECDSA_SHA384,
 };
 
 /// ECDSA signatures using the P-521 curve and SHA-512.
 pub(crate) static ECDSA_P521_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
+    display_name: "ECDSA_P521_SHA512",
     public_key_alg_id: alg_id::ECDSA_P521,
     signature_alg_id: alg_id::ECDSA_SHA512,
 };
 
 struct OpenSslAlgorithm {
+    display_name: &'static str,
     public_key_alg_id: AlgorithmIdentifier,
     signature_alg_id: AlgorithmIdentifier,
 }
 
 impl fmt::Debug for OpenSslAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OpenSSLAlgorithm")
-            .field("public_key_alg_id", &self.public_key_alg_id)
-            .field("signature_alg_id", &self.signature_alg_id)
-            .finish()
+        write!(
+            f,
+            "rustls_openssl Signature Verification Algorithm: {}",
+            self.display_name
+        )
     }
 }
 
@@ -291,5 +307,22 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
 
     fn fips(&self) -> bool {
         crate::fips()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_open_ssl_algorithm_debug() {
+        assert_eq!(
+            format!("{:?}", ECDSA_P256_SHA256),
+            "rustls_openssl Signature Verification Algorithm: ECDSA_P256_SHA256"
+        );
+        assert_eq!(
+            format!("{:?}", RSA_PSS_SHA256),
+            "rustls_openssl Signature Verification Algorithm: RSA_PSS_SHA256"
+        );
     }
 }

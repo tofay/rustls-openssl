@@ -1,20 +1,28 @@
 use crate::aead::{self, TAG_LEN};
 use crate::hash::{SHA256, SHA384};
 use crate::prf::Prf;
-use crate::signer::{ECDSA_SCHEMES, RSA_SCHEMES};
+use crate::signer::RSA_SCHEMES;
 use rustls::crypto::cipher::{
     make_tls12_aad, AeadKey, InboundOpaqueMessage, InboundPlainMessage, Iv, KeyBlockShape,
     MessageDecrypter, MessageEncrypter, Nonce, OutboundOpaqueMessage, OutboundPlainMessage,
     PrefixedPayload, Tls12AeadAlgorithm, UnsupportedOperationError, NONCE_LEN,
 };
+use rustls::crypto::KeyExchangeAlgorithm;
 use rustls::{
-    crypto::KeyExchangeAlgorithm, CipherSuite, CipherSuiteCommon, SupportedCipherSuite,
-    Tls12CipherSuite,
+    CipherSuite, CipherSuiteCommon, ConnectionTrafficSecrets, Error, SignatureScheme,
+    SupportedCipherSuite, Tls12CipherSuite,
 };
-use rustls::{ConnectionTrafficSecrets, Error};
 
 const GCM_EXPLICIT_NONCE_LENGTH: usize = 8;
 const GCM_IMPLICIT_NONCE_LENGTH: usize = 4;
+
+static ECDSA_SCHEMES: &[SignatureScheme] = &[
+    #[cfg(not(feature = "fips"))]
+    SignatureScheme::ED25519,
+    SignatureScheme::ECDSA_NISTP521_SHA512,
+    SignatureScheme::ECDSA_NISTP384_SHA384,
+    SignatureScheme::ECDSA_NISTP256_SHA256,
+];
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`.
 #[cfg(all(chacha, not(feature = "fips")))]
