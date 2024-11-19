@@ -1,7 +1,7 @@
 [package]
 name = "rustls-openssl"
 authors = ["Tom Fay <tom@teamfay.co.uk>"]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Rustls crypto provider for OpenSSL"
