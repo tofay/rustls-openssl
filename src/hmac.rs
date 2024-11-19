@@ -23,7 +23,7 @@ impl rustls::crypto::hmac::Hmac for Hmac {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

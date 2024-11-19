@@ -306,7 +306,7 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 

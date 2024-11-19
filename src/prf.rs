@@ -1,4 +1,4 @@
-use crate::hash::Algorithm;
+use crate::{cvt, hash::Algorithm};
 use core::ffi::c_void;
 use foreign_types_shared::ForeignTypeRef;
 use openssl::{
@@ -45,19 +45,11 @@ impl rustls::crypto::tls12::Prf for Prf {
     }
 
     fn fips(&self) -> bool {
-        crate::fips()
+        crate::fips::enabled()
     }
 }
 
 // rust-openssl doesn't expose tls1_prf function yet: https://github.com/sfackler/rust-openssl/pull/2329
-fn cvt(r: c_int) -> Result<i32, ErrorStack> {
-    if r <= 0 {
-        Err(ErrorStack::get())
-    } else {
-        Ok(r)
-    }
-}
-
 extern "C" {
     fn EVP_PKEY_CTX_ctrl(
         ctx: *mut EVP_PKEY_CTX,
