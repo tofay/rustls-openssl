@@ -88,127 +88,99 @@ impl Algorithm {
 
 #[cfg(test)]
 mod test {
+    use wycheproof::{aead::TestFlag, TestResult};
 
-    use crate::test::schemas::aead;
-    use std::{fs, path::PathBuf};
+    fn test_aead(alg: super::Algorithm) {
+        let test_name = match alg {
+            super::Algorithm::Aes128Gcm | super::Algorithm::Aes256Gcm => {
+                wycheproof::aead::TestName::AesGcm
+            }
+            #[cfg(all(chacha, not(feature = "fips")))]
+            super::Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
+        };
+        let test_set = wycheproof::aead::TestSet::load(test_name).unwrap();
 
-    fn test_aes(alg: super::Algorithm) {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("test")
-            .join("vectors")
-            .join("aes_gcm_test.json");
-        let tests: aead::AeadTestFile =
-            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let mut counter = 0;
 
-        for group in tests
+        for group in test_set
             .test_groups
-            .unwrap()
-            .iter()
-            .filter(|group| group.key_size.unwrap() == 8 * i64::try_from(alg.key_size()).unwrap())
-            .filter(|group| group.iv_size.unwrap() == 96)
+            .into_iter()
+            .filter(|group| group.key_size == 8 * alg.key_size())
+            .filter(|group| group.nonce_size == 96)
         {
-            for test in group.tests.as_ref().unwrap() {
-                dbg!(test.tc_id);
-                let key = test
-                    .key
-                    .as_deref()
-                    .map(|key| hex::decode(key).unwrap())
-                    .unwrap();
-                let iv = test
-                    .iv
-                    .as_deref()
-                    .map(|iv| hex::decode(iv).unwrap())
-                    .unwrap();
-                let aad = test
-                    .aad
-                    .as_deref()
-                    .map(|aad| hex::decode(aad).unwrap())
-                    .unwrap();
-                let msg = test
-                    .msg
-                    .as_deref()
-                    .map(|msg| hex::decode(msg).unwrap())
-                    .unwrap();
-                let ciphertext = test
-                    .ct
-                    .as_deref()
-                    .map(|ct| hex::decode(ct).unwrap())
-                    .unwrap();
-                let tag = test
-                    .tag
-                    .as_deref()
-                    .map(|tag| hex::decode(tag).unwrap())
-                    .unwrap();
-
+            for test in group.tests {
+                counter += 1;
                 let mut iv_bytes = [0u8; 12];
-                iv_bytes.copy_from_slice(&iv[0..12]);
+                iv_bytes.copy_from_slice(&test.nonce[0..12]);
 
-                let mut actual_ciphertext = msg.clone();
+                let mut actual_ciphertext = test.pt.to_vec();
                 let actual_tag = alg
-                    .encrypt_in_place(&key, &iv_bytes, &aad, &mut actual_ciphertext)
+                    .encrypt_in_place(&test.key, &iv_bytes, &test.aad, &mut actual_ciphertext)
                     .unwrap();
 
-                match test.result.as_ref().unwrap() {
-                    aead::Result::Invalid => {
-                        if test
-                            .flags
-                            .as_ref()
-                            .unwrap()
-                            .iter()
-                            .any(|flag| flag == "ModifiedTag")
-                        {
+                match &test.result {
+                    TestResult::Invalid => {
+                        if test.flags.iter().any(|flag| *flag == TestFlag::ModifiedTag) {
                             assert_ne!(
                                 actual_tag[..],
-                                tag[..],
+                                test.tag[..],
                                 "Expected incorrect tag. Id {}: {}",
-                                test.tc_id.unwrap(),
-                                test.comment.as_deref().unwrap()
+                                test.tc_id,
+                                test.comment
                             );
                         }
                     }
-                    aead::Result::Valid | aead::Result::Acceptable => {
+                    TestResult::Valid | TestResult::Acceptable => {
                         assert_eq!(
-                            actual_ciphertext,
-                            ciphertext,
+                            actual_ciphertext[..],
+                            test.ct[..],
                             "Test case failed {}: {}",
-                            test.tc_id.unwrap(),
-                            test.comment.as_deref().unwrap()
+                            test.tc_id,
+                            test.comment
                         );
                         assert_eq!(
                             actual_tag[..],
-                            tag[..],
+                            test.tag[..],
                             "Test case failed {}: {}",
-                            test.tc_id.unwrap(),
-                            test.comment.as_deref().unwrap()
+                            test.tc_id,
+                            test.comment
                         );
                     }
                 }
 
-                let mut data = ciphertext.to_vec();
-                data.extend_from_slice(&tag);
-                let res = alg.decrypt_in_place(&key, &iv_bytes, &aad, &mut data);
+                let mut data = test.ct.to_vec();
+                data.extend_from_slice(&test.tag);
+                let res = alg.decrypt_in_place(&test.key, &iv_bytes, &test.aad, &mut data);
 
-                match test.result.as_ref().unwrap() {
-                    aead::Result::Invalid => {
+                match &test.result {
+                    TestResult::Invalid => {
                         assert!(res.is_err());
                     }
-                    aead::Result::Valid | aead::Result::Acceptable => {
-                        assert_eq!(res, Ok(msg.len()));
-                        assert_eq!(&data[..res.unwrap()], &msg[..]);
+                    TestResult::Valid | TestResult::Acceptable => {
+                        assert_eq!(res, Ok(test.pt.len()));
+                        assert_eq!(&data[..res.unwrap()], &test.pt[..]);
                     }
                 }
             }
         }
+
+        // Ensure we ran some tests.
+        assert!(counter > 50);
     }
 
     #[test]
     fn test_aes_128() {
-        test_aes(super::Algorithm::Aes128Gcm);
+        test_aead(super::Algorithm::Aes128Gcm);
     }
 
     #[test]
     fn test_aes_256() {
-        test_aes(super::Algorithm::Aes256Gcm);
+        test_aead(super::Algorithm::Aes256Gcm);
+    }
+
+    #[cfg(all(chacha, not(feature = "fips")))]
+    #[test]
+    fn test_chacha() {
+        test_aead(super::Algorithm::ChaCha20Poly1305);
     }
 }

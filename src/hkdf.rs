@@ -126,41 +126,29 @@ fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), Error
 
 #[cfg(test)]
 mod test {
-    use crate::test::schemas::hkdf::{self, HkdfTestFile};
     use rustls::crypto::tls13::Hkdf;
-    use std::{fs, path::PathBuf};
+    use wycheproof::{hkdf::TestName, TestResult};
 
-    fn test_hkdf(hkdf: &dyn Hkdf, test_file: HkdfTestFile) {
-        for test_group in test_file.test_groups.unwrap() {
-            for test in test_group.tests.unwrap() {
-                let salt = test.salt.as_deref().map(|salt| hex::decode(salt).unwrap());
-                let ikm = test
-                    .ikm
-                    .as_deref()
-                    .map(|ikm| hex::decode(ikm).unwrap())
-                    .unwrap();
-                let expected_okm = test
-                    .okm
-                    .as_deref()
-                    .map(|okm| hex::decode(okm).unwrap())
-                    .unwrap();
-                let info = test.info.as_deref().map(|info| hex::decode(info).unwrap());
+    fn test_hkdf(hkdf: &dyn Hkdf, test_name: TestName) {
+        let test_set = wycheproof::hkdf::TestSet::load(test_name).unwrap();
 
+        for test_group in test_set.test_groups {
+            for test in test_group.tests {
                 dbg!(&test);
 
-                let prk_expander = hkdf.extract_from_secret(salt.as_deref(), &ikm);
+                let prk_expander = hkdf.extract_from_secret(Some(&test.salt), &test.ikm);
 
-                let mut okm = vec![0; test.size.unwrap().try_into().unwrap()];
-                let res = prk_expander.expand_slice(&[info.as_deref().unwrap_or(&[])], &mut okm);
+                let mut okm = vec![0; test.size];
+                let res = prk_expander.expand_slice(&[&test.info], &mut okm);
 
-                match &test.result.unwrap() {
-                    hkdf::Result::Acceptable | hkdf::Result::Valid => {
+                match &test.result {
+                    TestResult::Acceptable | TestResult::Valid => {
                         assert!(res.is_ok());
-                        assert_eq!(okm, expected_okm, "Failed test: {}", test.comment.unwrap());
+                        assert_eq!(okm[..], test.okm[..], "Failed test: {}", test.comment);
                     }
-                    hkdf::Result::Invalid => {
+                    TestResult::Invalid => {
                         dbg!(&res);
-                        assert!(res.is_err(), "Failed test: {}", test.comment.unwrap())
+                        assert!(res.is_err(), "Failed test: {}", test.comment)
                     }
                 }
             }
@@ -171,25 +159,13 @@ mod test {
     fn hkdf_sha256() {
         let suite = crate::cipher_suite::TLS13_AES_128_GCM_SHA256;
         let hkdf = suite.tls13().unwrap().hkdf_provider;
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("test")
-            .join("vectors")
-            .join("hkdf_sha256_test.json");
-        let tests: HkdfTestFile = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-        test_hkdf(hkdf, tests);
+        test_hkdf(hkdf, TestName::HkdfSha256);
     }
 
     #[test]
     fn hkdf_sha384() {
         let suite = crate::cipher_suite::TLS13_AES_256_GCM_SHA384;
         let hkdf = suite.tls13().unwrap().hkdf_provider;
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("test")
-            .join("vectors")
-            .join("hkdf_sha384_test.json");
-        let tests: HkdfTestFile = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-        test_hkdf(hkdf, tests);
+        test_hkdf(hkdf, TestName::HkdfSha384);
     }
 }
