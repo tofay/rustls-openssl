@@ -69,8 +69,6 @@ mod kx;
 mod prf;
 mod quic;
 mod signer;
-#[cfg(test)]
-mod test;
 #[cfg(feature = "tls12")]
 mod tls12;
 mod tls13;
