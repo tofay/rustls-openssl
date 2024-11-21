@@ -8,6 +8,7 @@ use rustls::crypto::hmac::{Hmac as _, Tag};
 use rustls::crypto::tls13::{
     Hkdf as RustlsHkdf, HkdfExpander as RustlsHkdfExpander, OkmBlock, OutputLengthError,
 };
+use zeroize::Zeroize;
 
 const MAX_MD_SIZE: usize = openssl_sys::EVP_MAX_MD_SIZE as usize;
 
@@ -122,6 +123,12 @@ fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), Error
         ctx.add_hkdf_info(info)?;
     }
     Ok(())
+}
+
+impl Drop for HkdfExpander {
+    fn drop(&mut self) {
+        self.private_key.zeroize();
+    }
 }
 
 #[cfg(test)]
