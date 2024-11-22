@@ -68,6 +68,9 @@ mod kx;
 #[cfg(feature = "tls12")]
 mod prf;
 mod quic;
+
+#[cfg(feature = "quinn")]
+pub mod quinn;
 mod signer;
 #[cfg(feature = "tls12")]
 mod tls12;
