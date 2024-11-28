@@ -7,7 +7,7 @@ See the [documentation](https://docs.rs/rustls-openssl) for supported cipher sui
 [![Build Status](https://github.com/tofay/rustls-openssl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tofay/rustls-openssl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Documentation](https://docs.rs/rustls-openssl/badge.svg)](https://docs.rs/rustls-openssl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
+[![Coverage Status (codecov.io)](https://codecov.io/gh/tofay/rustls-openssl/branch/main/graph/badge.svg)](https://codecov.io/gh/tofay/rustls-openssl/)
 
 ## Status
 Early in development.
