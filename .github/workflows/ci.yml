@@ -47,6 +47,21 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: cargo clippy --no-default-features (warnings)
         run: cargo clippy --no-default-features --all-targets -- -D warnings
+  examples:
+    name: Run examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Cache build artifacts
+        uses: Swatinem/rust-cache@v2
+      - name: cargo run --example quinn
+        run: cargo run --example quinn --features quinn
+
 
   test-fips-1-1-1:
     name: Test using FIPS openssl 1.1.1

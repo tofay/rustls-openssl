@@ -15,24 +15,18 @@ const MAX_MD_SIZE: usize = openssl_sys::EVP_MAX_MD_SIZE as usize;
 /// HKDF implementation using HMAC with the specified Hash Algorithm
 pub(crate) struct Hkdf(pub(crate) HashAlgorithm);
 
-struct HkdfExpander {
+pub(crate) struct HkdfExpander {
     private_key: [u8; MAX_MD_SIZE],
     size: usize,
     hash: HashAlgorithm,
 }
 
-impl RustlsHkdf for Hkdf {
-    fn extract_from_zero_ikm(&self, salt: Option<&[u8]>) -> Box<dyn RustlsHkdfExpander> {
-        let hash_size = self.0.output_len();
-        let secret = [0u8; MAX_MD_SIZE];
-        self.extract_from_secret(salt, &secret[..hash_size])
-    }
-
-    fn extract_from_secret(
+impl Hkdf {
+    pub(crate) fn extract_from_secret_internal(
         &self,
         salt: Option<&[u8]>,
         secret: &[u8],
-    ) -> Box<dyn RustlsHkdfExpander> {
+    ) -> HkdfExpander {
         let hash_size = self.0.output_len();
         let mut private_key = [0u8; MAX_MD_SIZE];
         PkeyCtx::new_id(Id::HKDF)
@@ -51,11 +45,27 @@ impl RustlsHkdf for Hkdf {
             })
             .expect("HDKF-Extract failed");
 
-        Box::new(HkdfExpander {
+        HkdfExpander {
             private_key,
             size: hash_size,
             hash: self.0,
-        })
+        }
+    }
+}
+
+impl RustlsHkdf for Hkdf {
+    fn extract_from_zero_ikm(&self, salt: Option<&[u8]>) -> Box<dyn RustlsHkdfExpander> {
+        let hash_size = self.0.output_len();
+        let secret = [0u8; MAX_MD_SIZE];
+        self.extract_from_secret(salt, &secret[..hash_size])
+    }
+
+    fn extract_from_secret(
+        &self,
+        salt: Option<&[u8]>,
+        secret: &[u8],
+    ) -> Box<dyn RustlsHkdfExpander> {
+        Box::new(self.extract_from_secret_internal(salt, secret))
     }
 
     fn expander_for_okm(&self, okm: &OkmBlock) -> Box<dyn RustlsHkdfExpander> {
