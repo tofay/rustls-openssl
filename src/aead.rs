@@ -1,31 +1,32 @@
-use openssl::cipher::{Cipher, CipherRef};
-use openssl::cipher_ctx::CipherCtx;
 use rustls::crypto::cipher::NONCE_LEN;
 use rustls::Error;
+use windows::core::{Array, HSTRING};
+use windows::Security::Cryptography::Core::{
+    CryptographicEngine, SymmetricAlgorithmNames, SymmetricKeyAlgorithmProvider,
+};
+use windows::Security::Cryptography::CryptographicBuffer;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
-    #[cfg(all(chacha, not(feature = "fips")))]
-    ChaCha20Poly1305,
 }
 
 /// The tag length is 16 bytes for all supported ciphers.
 pub(crate) const TAG_LEN: usize = 16;
 
 impl Algorithm {
-    fn openssl_cipher(self) -> &'static CipherRef {
-        match self {
-            Self::Aes128Gcm => Cipher::aes_128_gcm(),
-            Self::Aes256Gcm => Cipher::aes_256_gcm(),
-            #[cfg(all(chacha, not(feature = "fips")))]
-            Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
+    fn name(&self) -> HSTRING {
+        match &self {
+            Self::Aes128Gcm | Self::Aes256Gcm => SymmetricAlgorithmNames::AesGcm().unwrap(),
         }
     }
 
     pub(crate) fn key_size(self) -> usize {
-        self.openssl_cipher().key_length()
+        match self {
+            Self::Aes128Gcm => 16,
+            Self::Aes256Gcm => 32,
+        }
     }
 
     /// Encrypts data in place and returns the tag.
@@ -36,22 +37,56 @@ impl Algorithm {
         aad: &[u8],
         data: &mut [u8],
     ) -> Result<[u8; TAG_LEN], Error> {
-        CipherCtx::new()
-            .and_then(|mut ctx| {
-                ctx.encrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
-                // Providing no output buffer implies input is AAD.
-                ctx.cipher_update(aad, None)?;
-                // The ciphers are all stream ciphers, so we shound encrypt the same amount of data...
-                let count = ctx.cipher_update_inplace(data, data.len())?;
-                debug_assert!(count == data.len());
-                // ... and no more data should be written at the end.
-                let rest = ctx.cipher_final(&mut [])?;
-                debug_assert!(rest == 0);
+        SymmetricKeyAlgorithmProvider::OpenAlgorithm(&self.name())
+            .and_then(|provider| {
+                let key = provider
+                    .CreateSymmetricKey(&CryptographicBuffer::CreateFromByteArray(&key)?)?;
+                let data_buffer = CryptographicBuffer::CreateFromByteArray(&data)?;
+                let aad_buffer = CryptographicBuffer::CreateFromByteArray(aad)?;
+                let nonce_buffer = CryptographicBuffer::CreateFromByteArray(nonce)?;
+                let res = CryptographicEngine::EncryptAndAuthenticate(
+                    &key,
+                    &data_buffer,
+                    &nonce_buffer,
+                    &aad_buffer,
+                )?;
+
+                let encrypted_data_buffer = res.EncryptedData()?;
+                let mut encrypted_data_array =
+                    Array::<u8>::with_len(encrypted_data_buffer.Length()? as usize);
+                CryptographicBuffer::CopyToByteArray(
+                    &encrypted_data_buffer,
+                    &mut encrypted_data_array,
+                )?;
+                data.copy_from_slice(encrypted_data_array.as_slice());
+                let tag_buffer = res.AuthenticationTag()?;
+
+                dbg!(&tag_buffer);
+
                 let mut tag = [0u8; TAG_LEN];
-                ctx.tag(&mut tag)?;
+                let mut tag_array = Array::<u8>::with_len(TAG_LEN);
+                CryptographicBuffer::CopyToByteArray(&tag_buffer, &mut tag_array)?;
+                tag.copy_from_slice(tag_array.as_slice());
                 Ok(tag)
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
+            .map_err(|e| Error::General(e.to_string()))
+
+        // CipherCtx::new()
+        //     .and_then(|mut ctx| {
+        //         ctx.encrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
+        //         // Providing no output buffer implies input is AAD.
+        //         ctx.cipher_update(aad, None)?;
+        //         // The ciphers are all stream ciphers, so we shound encrypt the same amount of data...
+        //         let count = ctx.cipher_update_inplace(data, data.len())?;
+        //         debug_assert!(count == data.len());
+        //         // ... and no more data should be written at the end.
+        //         let rest = ctx.cipher_final(&mut [])?;
+        //         debug_assert!(rest == 0);
+        //         let mut tag = [0u8; TAG_LEN];
+        //         ctx.tag(&mut tag)?;
+        //         Ok(tag)
+        //     })
+        //     .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     /// Decrypts in place, verifying the tag and returns the length of the
@@ -71,18 +106,42 @@ impl Algorithm {
 
         let (ciphertext, tag) = data.split_at_mut(payload_len - TAG_LEN);
 
-        CipherCtx::new()
-            .and_then(|mut ctx| {
-                ctx.decrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
-                ctx.cipher_update(aad, None)?;
-                ctx.set_tag(tag)?;
-                let count = ctx.cipher_update_inplace(ciphertext, ciphertext.len())?;
-                debug_assert!(count == ciphertext.len());
-                let rest = ctx.cipher_final(&mut [])?;
-                debug_assert!(rest == 0);
-                Ok(count + rest)
+        SymmetricKeyAlgorithmProvider::OpenAlgorithm(&self.name())
+            .and_then(|provider| {
+                let key = provider
+                    .CreateSymmetricKey(&CryptographicBuffer::CreateFromByteArray(&key)?)?;
+                let data_buffer = CryptographicBuffer::CreateFromByteArray(&ciphertext)?;
+                let aad_buffer = CryptographicBuffer::CreateFromByteArray(aad)?;
+                let nonce_buffer = CryptographicBuffer::CreateFromByteArray(nonce)?;
+                let tag_buffer = CryptographicBuffer::CreateFromByteArray(tag)?;
+                let plaintext_buffer = CryptographicEngine::DecryptAndAuthenticate(
+                    &key,
+                    &data_buffer,
+                    &nonce_buffer,
+                    &tag_buffer,
+                    &aad_buffer,
+                )?;
+
+                let plaintext_len = plaintext_buffer.Length()? as usize;
+                let mut plaintext_array = Array::<u8>::with_len(plaintext_len);
+                CryptographicBuffer::CopyToByteArray(&plaintext_buffer, &mut plaintext_array)?;
+                ciphertext[..plaintext_len].copy_from_slice(plaintext_array.as_slice());
+                Ok(plaintext_len)
             })
-            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
+            .map_err(|e| Error::General(e.to_string()))
+
+        // CipherCtx::new()
+        //     .and_then(|mut ctx| {
+        //         ctx.decrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
+        //         ctx.cipher_update(aad, None)?;
+        //         ctx.set_tag(tag)?;
+        //         let count = ctx.cipher_update_inplace(ciphertext, ciphertext.len())?;
+        //         debug_assert!(count == ciphertext.len());
+        //         let rest = ctx.cipher_final(&mut [])?;
+        //         debug_assert!(rest == 0);
+        //         Ok(count + rest)
+        //     })
+        //     .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 }
 
@@ -95,8 +154,6 @@ mod test {
             super::Algorithm::Aes128Gcm | super::Algorithm::Aes256Gcm => {
                 wycheproof::aead::TestName::AesGcm
             }
-            #[cfg(all(chacha, not(feature = "fips")))]
-            super::Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
         };
         let test_set = wycheproof::aead::TestSet::load(test_name).unwrap();
 
@@ -134,14 +191,14 @@ mod test {
                         assert_eq!(
                             actual_ciphertext[..],
                             test.ct[..],
-                            "Test case failed {}: {}",
+                            "Incorrect ciphertext on testcase {}: {}",
                             test.tc_id,
                             test.comment
                         );
                         assert_eq!(
                             actual_tag[..],
                             test.tag[..],
-                            "Test case failed {}: {}",
+                            "Incorrect tag on testcase {}: {}",
                             test.tc_id,
                             test.comment
                         );
@@ -176,11 +233,5 @@ mod test {
     #[test]
     fn test_aes_256() {
         test_aead(super::Algorithm::Aes256Gcm);
-    }
-
-    #[cfg(all(chacha, not(feature = "fips")))]
-    #[test]
-    fn test_chacha() {
-        test_aead(super::Algorithm::ChaCha20Poly1305);
     }
 }

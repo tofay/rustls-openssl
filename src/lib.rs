@@ -60,11 +60,31 @@ use openssl_sys::c_int;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
+use rustls::Error;
+use windows::{
+    core::{Interface, PCWSTR},
+    Storage::Streams::IBuffer,
+    Win32::System::WinRT::IBufferByteAccess,
+};
+
 mod aead;
 mod hash;
 mod hkdf;
 mod hmac;
 mod kx;
+
+fn to_null_terminated_le_bytes(str: PCWSTR) -> Vec<u8> {
+    unsafe {
+        str.as_wide()
+            .iter()
+            .copied()
+            .chain(Some(0))
+            .map(u16::to_le_bytes)
+            .flatten()
+            .collect()
+    }
+}
+
 #[cfg(feature = "tls12")]
 mod prf;
 mod quic;
@@ -85,8 +105,6 @@ pub mod cipher_suite {
     pub use super::tls12::{
         TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     };
-    #[cfg(all(chacha, not(feature = "fips")))]
-    pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
     pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
 
@@ -151,7 +169,7 @@ pub fn default_provider() -> CryptoProvider {
 /// let mut root_store = RootCertStore {
 ///     roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
 /// };
-///  
+///
 /// // Set custom config of cipher suites that have been imported from rustls_openssl.
 /// let cipher_suites = vec![TLS13_AES_128_GCM_SHA256];
 /// let kx_group = vec![SECP256R1];
@@ -195,8 +213,6 @@ pub fn custom_provider(
 pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     tls13::TLS13_AES_256_GCM_SHA384,
     tls13::TLS13_AES_128_GCM_SHA256,
-    #[cfg(all(chacha, not(feature = "fips")))]
-    tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
@@ -302,4 +318,27 @@ pub mod fips {
             provider
         });
     }
+}
+
+unsafe fn as_mut_bytes(buffer: &IBuffer) -> Result<&mut [u8], Error> {
+    buffer
+        .cast::<IBufferByteAccess>()
+        .and_then(|byte_acess| {
+            let data = byte_acess.Buffer()?;
+            Ok(std::slice::from_raw_parts_mut(
+                data,
+                buffer.Length()? as usize,
+            ))
+        })
+        .map_err(|e| Error::General(e.to_string()))
+}
+
+unsafe fn as_bytes(buffer: &IBuffer) -> Result<&[u8], Error> {
+    buffer
+        .cast::<IBufferByteAccess>()
+        .and_then(|byte_acess| {
+            let data = byte_acess.Buffer()?;
+            Ok(std::slice::from_raw_parts(data, buffer.Length()? as usize))
+        })
+        .map_err(|e| Error::General(e.to_string()))
 }

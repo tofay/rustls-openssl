@@ -12,30 +12,6 @@ use rustls::{
     CipherSuite, ConnectionTrafficSecrets, Error, SupportedCipherSuite, Tls13CipherSuite,
 };
 
-/// The TLS1.3 ciphersuite `TLS_CHACHA20_POLY1305_SHA256`
-#[cfg(all(chacha, not(feature = "fips")))]
-pub static TLS13_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
-    SupportedCipherSuite::Tls13(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL);
-
-#[cfg(all(chacha, not(feature = "fips")))]
-pub static TLS13_CHACHA20_POLY1305_SHA256_INTERNAL: &Tls13CipherSuite = &Tls13CipherSuite {
-    common: CipherSuiteCommon {
-        suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
-        hash_provider: &SHA256,
-        confidentiality_limit: u64::MAX,
-    },
-    hkdf_provider: &Hkdf(SHA256),
-    aead_alg: &aead::Algorithm::ChaCha20Poly1305,
-    quic: Some(&quic::KeyBuilder {
-        packet_algo: aead::Algorithm::ChaCha20Poly1305,
-        header_algo: quic::HeaderProtectionAlgorithm::ChaCha20,
-        // ref: <https://datatracker.ietf.org/doc/html/rfc9001#section-6.6>
-        confidentiality_limit: u64::MAX,
-        // ref: <https://datatracker.ietf.org/doc/html/rfc9001#section-6.6>
-        integrity_limit: 1 << 36,
-    }),
-};
-
 /// The TLS1.3 ciphersuite `TLS_AES_256_GCM_SHA384`
 pub static TLS13_AES_256_GCM_SHA384: SupportedCipherSuite =
     SupportedCipherSuite::Tls13(&Tls13CipherSuite {
@@ -113,10 +89,6 @@ impl Tls13AeadAlgorithm for aead::Algorithm {
         Ok(match self {
             aead::Algorithm::Aes128Gcm => ConnectionTrafficSecrets::Aes128Gcm { key, iv },
             aead::Algorithm::Aes256Gcm => ConnectionTrafficSecrets::Aes256Gcm { key, iv },
-            #[cfg(all(chacha, not(feature = "fips")))]
-            aead::Algorithm::ChaCha20Poly1305 => {
-                ConnectionTrafficSecrets::Chacha20Poly1305 { key, iv }
-            }
         })
     }
 

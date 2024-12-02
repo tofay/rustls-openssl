@@ -1,8 +1,13 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
-use openssl::hash::MessageDigest;
-use openssl::md::{Md, MdRef};
-use openssl::sha::{self, sha256, sha384};
 use rustls::crypto::hash::Output;
+use rustls::Error;
+use windows::core::{Array, Interface, HSTRING};
+use windows::Security::Cryptography::Core::{
+    CryptographicHash, HashAlgorithmNames, HashAlgorithmProvider,
+};
+use windows::Security::Cryptography::CryptographicBuffer;
+use windows::Storage::Streams::{Buffer, IBuffer};
+use windows::Win32::System::WinRT::IBufferByteAccess;
 
 pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
 pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
@@ -16,44 +21,43 @@ pub(crate) enum Algorithm {
 
 /// A Hash context
 #[derive(Clone)]
-enum Context {
-    Sha256(sha::Sha256),
-    Sha384(sha::Sha384),
-}
+struct Context(CryptographicHash);
 
 impl Algorithm {
-    pub(crate) fn mdref(self) -> &'static MdRef {
+    pub(crate) fn name(&self) -> HSTRING {
         match &self {
-            Algorithm::SHA256 => Md::sha256(),
-            Algorithm::SHA384 => Md::sha384(),
+            Self::SHA256 => HashAlgorithmNames::Sha256(),
+            Self::SHA384 => HashAlgorithmNames::Sha384(),
         }
+        .unwrap()
     }
 
-    pub(crate) fn message_digest(self) -> MessageDigest {
-        match &self {
-            Algorithm::SHA256 => MessageDigest::sha256(),
-            Algorithm::SHA384 => MessageDigest::sha384(),
-        }
+    pub(crate) fn hash_algorithm_provider(&self) -> HashAlgorithmProvider {
+        HashAlgorithmProvider::OpenAlgorithm(&self.name()).unwrap()
     }
 }
 
 impl rustls::crypto::hash::Hash for Algorithm {
     fn start(&self) -> Box<dyn rustls::crypto::hash::Context> {
-        match &self {
-            Algorithm::SHA256 => Box::new(Context::Sha256(sha::Sha256::new())),
-            Algorithm::SHA384 => Box::new(Context::Sha384(sha::Sha384::new())),
-        }
+        Box::new(Context(
+            self.hash_algorithm_provider().CreateHash().unwrap(),
+        ))
     }
 
     fn hash(&self, data: &[u8]) -> Output {
-        match &self {
-            Algorithm::SHA256 => Output::new(&sha256(data)[..]),
-            Algorithm::SHA384 => Output::new(&sha384(data)[..]),
-        }
+        //convert u8 into IBuffer
+        let input_buffer = CryptographicBuffer::CreateFromByteArray(&data).unwrap();
+        let output_buffer = self
+            .hash_algorithm_provider()
+            .HashData(&input_buffer)
+            .unwrap();
+        let mut array = Array::new();
+        CryptographicBuffer::CopyToByteArray(&output_buffer, &mut array).unwrap();
+        Output::new(&array[..])
     }
 
     fn output_len(&self) -> usize {
-        self.message_digest().size()
+        self.hash_algorithm_provider().HashLength().unwrap() as usize
     }
 
     fn algorithm(&self) -> rustls::crypto::hash::HashAlgorithm {
@@ -62,18 +66,14 @@ impl rustls::crypto::hash::Hash for Algorithm {
             Algorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
         }
     }
-
-    fn fips(&self) -> bool {
-        crate::fips::enabled()
-    }
 }
 
 impl Context {
     fn finish_inner(self) -> Output {
-        match self {
-            Self::Sha256(context) => Output::new(&context.finish()[..]),
-            Self::Sha384(context) => Output::new(&context.finish()[..]),
-        }
+        let output_buffer = self.0.GetValueAndReset().unwrap();
+        let mut array = Array::new();
+        CryptographicBuffer::CopyToByteArray(&output_buffer, &mut array).unwrap();
+        Output::new(&array[..])
     }
 }
 
@@ -92,9 +92,7 @@ impl rustls::crypto::hash::Context for Context {
     }
 
     fn update(&mut self, data: &[u8]) {
-        match self {
-            Self::Sha256(context) => context.update(data),
-            Self::Sha384(context) => context.update(data),
-        }
+        let buffer = CryptographicBuffer::CreateFromByteArray(&data).unwrap();
+        self.0.Append(&buffer).unwrap();
     }
 }
