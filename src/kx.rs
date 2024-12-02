@@ -9,9 +9,11 @@ use windows::Win32::Security::Cryptography::{
     BCRYPT_ECDH_ALGORITHM, BCRYPT_ECDH_PUBLIC_GENERIC_MAGIC, BCRYPT_HANDLE, BCRYPT_KDF_RAW_SECRET,
     BCRYPT_KEY_HANDLE, BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
 };
-use zeroize::Zeroize;
 
 use crate::to_null_terminated_le_bytes;
+
+/// The maximum size of the shared secret produced by a supported key exchange group.
+const MAX_SECRET_SIZE: usize = 48;
 
 /// [Supported KeyExchange groups](SupportedKxGroup).
 /// * [SECP384R1]
@@ -90,7 +92,7 @@ impl SupportedKxGroup for KxGroup {
                 BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
             )
             .ok()
-            .unwrap();
+            .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
 
             let curve = self.ecc_curve();
             let bits = self.key_bits();
@@ -103,11 +105,13 @@ impl SupportedKxGroup for KxGroup {
                 0,
             )
             .ok()
-            .unwrap();
+            .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
             BCryptGenerateKeyPair(*alg_handle, &mut *key_handle, bits as u32, 0)
                 .ok()
-                .unwrap();
-            BCryptFinalizeKeyPair(*key_handle, 0).ok().unwrap();
+                .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
+            BCryptFinalizeKeyPair(*key_handle, 0)
+                .ok()
+                .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
         }
 
         // Export the public key
@@ -122,11 +126,10 @@ impl SupportedKxGroup for KxGroup {
                 0,
             )
             .ok()
-            .unwrap();
+            .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
         }
 
-        let mut public_key = Vec::with_capacity(size as usize);
-
+        let mut public_key = vec![0; size as usize];
         unsafe {
             BCryptExportKey(
                 *key_handle,
@@ -137,7 +140,15 @@ impl SupportedKxGroup for KxGroup {
                 0,
             )
             .ok()
-            .unwrap();
+            .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
+        }
+
+        // Remove the BCRYPT_ECCKEY_BLOB header
+        public_key.drain(..core::mem::size_of::<BCRYPT_ECCKEY_BLOB>());
+
+        if self.is_nist() {
+            // Add the uncompressed format byte per RFC 8446 https://www.rfc-editor.org/rfc/rfc8446#section-4.2.8.2.
+            public_key.insert(0, 0x04);
         }
 
         Ok(Box::new(EcKeyExchange {
@@ -155,27 +166,37 @@ impl SupportedKxGroup for KxGroup {
 
 impl ActiveKeyExchange for EcKeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
-        // Reject if peer public key is NIST and not in uncompressed format
-        if self.kx_group.is_nist() && peer_pub_key.first() != Some(&0x04) {
+        let new_peer_pub_key = if self.kx_group.is_nist() {
+            // Reject if not in uncompressed format
+            if peer_pub_key.first() != Some(&0x04) {
+                return Err(Error::PeerMisbehaved(
+                    rustls::PeerMisbehaved::InvalidKeyShare,
+                ));
+            }
+            &peer_pub_key[1..]
+        } else {
+            &peer_pub_key
+        };
+
+        // Reject empty public keys and those at infinity
+        if new_peer_pub_key.is_empty() || new_peer_pub_key.iter().all(|&b| b == 0) {
             return Err(Error::PeerMisbehaved(
                 rustls::PeerMisbehaved::InvalidKeyShare,
             ));
         }
 
-        let key_len = self.kx_group.key_bits() + 7 / 8;
-        let (uncompressed_key, num_parts) = if self.kx_group.is_nist() {
-            (&peer_pub_key[1..], 2)
-        } else {
-            (peer_pub_key, 1)
-        };
-        if uncompressed_key.len() != key_len * num_parts {
+        let key_len = (self.kx_group.key_bits() + 7) / 8;
+        let num_parts = if self.kx_group.is_nist() { 2 } else { 1 };
+        if new_peer_pub_key.len() != key_len * num_parts {
             return Err(Error::PeerMisbehaved(
                 rustls::PeerMisbehaved::InvalidKeyShare,
             ));
         }
-        let x = &uncompressed_key[..key_len];
+
+        // Determine the x and y coordinates of the peer's public key
+        let x = &new_peer_pub_key[..key_len];
         let y = if num_parts == 2 {
-            &uncompressed_key[key_len..]
+            &new_peer_pub_key[key_len..]
         } else {
             &[]
         };
@@ -199,7 +220,7 @@ impl ActiveKeyExchange for EcKeyExchange {
                         0,
                     )
                     .ok()
-                    .unwrap();
+                    .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
                 }
             }
             KxGroup::SECP384R1 => {
@@ -218,7 +239,7 @@ impl ActiveKeyExchange for EcKeyExchange {
                         0,
                     )
                     .ok()
-                    .unwrap();
+                    .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
                 }
             }
             KxGroup::X25519 => {
@@ -238,7 +259,7 @@ impl ActiveKeyExchange for EcKeyExchange {
                         0,
                     )
                     .ok()
-                    .unwrap();
+                    .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))?;
                 }
             }
         };
@@ -256,21 +277,22 @@ impl ActiveKeyExchange for EcKeyExchange {
                 .ok()
                 .unwrap();
         }
-        let mut secret_bytes = Vec::with_capacity(size as usize);
+
+        let mut secret_bytes = [0; MAX_SECRET_SIZE];
         unsafe {
             BCryptDeriveKey(
                 *secret,
                 BCRYPT_KDF_RAW_SECRET,
                 None,
-                Some(&mut secret_bytes),
+                Some(&mut secret_bytes[..size as usize]),
                 &mut size,
                 0,
             )
             .ok()
             .unwrap();
         }
-        let secret = SharedSecret::from(&secret_bytes[..]);
-        secret_bytes.zeroize();
+        secret_bytes[..size as usize].reverse();
+        let secret = SharedSecret::from(&secret_bytes[..size as usize]);
         Ok(secret)
     }
 
@@ -363,48 +385,117 @@ impl KeyBlobX25519 {
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use wycheproof::{ecdh::TestName, TestResult};
+#[cfg(test)]
+mod test {
+    use rustls::crypto::ActiveKeyExchange;
+    use windows::Win32::Security::Cryptography::{
+        BCryptImportKeyPair, BCryptOpenAlgorithmProvider, BCryptSetProperty, BCRYPT_ECCKEY_BLOB,
+        BCRYPT_ECCPRIVATE_BLOB, BCRYPT_ECC_CURVE_NAME, BCRYPT_ECDH_ALGORITHM,
+        BCRYPT_ECDH_PRIVATE_GENERIC_MAGIC, BCRYPT_HANDLE, BCRYPT_KEY_HANDLE,
+        BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
+    };
+    use wycheproof::{ecdh::TestName, TestResult};
 
-//     use crate::kx::EcKeyExchange;
+    use crate::{kx::EcKeyExchange, to_null_terminated_le_bytes};
 
-//     #[test]
-//     fn test_secp256r1() {
-//         let test_set = wycheproof::ecdh::TestSet::load(TestName::EcdhSecp256r1Ecpoint).unwrap();
+    use super::P256_CURVE_SIZE;
 
-//         for test_group in test_set.test_groups.iter() {
-//             for test in test_group.tests {
-//                 if test.private_key.len() != 32 {
-//                     continue;
-//                 }
-//                 // Create ActiveKeyExchange
+    #[repr(C)]
+    struct KeyBlobP256Private {
+        pub header: BCRYPT_ECCKEY_BLOB,
+        pub x: [u8; P256_CURVE_SIZE],
+        pub y: [u8; P256_CURVE_SIZE],
+        pub d: [u8; P256_CURVE_SIZE],
+    }
 
-//                 let mut kx = EcKeyExchange {
-//                     kx_group: crate::kx::KxGroup::SECP256R1,
-//                     alg_handle: Default::default(),
-//                     key_handle: Default::default(),
-//                     public_key: Vec::new(),
-//                 };
+    impl KeyBlobP256Private {
+        fn new(d: &[u8]) -> Self {
+            let mut blob = Self {
+                header: BCRYPT_ECCKEY_BLOB {
+                    dwMagic: BCRYPT_ECDH_PRIVATE_GENERIC_MAGIC,
+                    cbKey: P256_CURVE_SIZE as u32,
+                },
+                x: [0; P256_CURVE_SIZE],
+                y: [0; P256_CURVE_SIZE],
+                d: [0; P256_CURVE_SIZE],
+            };
+            blob.d.copy_from_slice(d);
+            blob
+        }
+    }
 
-//                 dbg!(&test);
+    #[test]
+    fn test_secp256r1() {
+        let test_set = wycheproof::ecdh::TestSet::load(TestName::EcdhSecp256r1Ecpoint).unwrap();
 
-//                 let prk_expander = hkdf.extract_from_secret(Some(&test.salt), &test.ikm);
+        for test_group in &test_set.test_groups {
+            for test in &test_group.tests {
+                if test.private_key.len() != P256_CURVE_SIZE {
+                    continue;
+                }
+                dbg!(test);
 
-//                 let mut okm = vec![0; test.size];
-//                 let res = prk_expander.expand_slice(&[&test.info], &mut okm);
+                let mut kx = EcKeyExchange {
+                    kx_group: crate::kx::KxGroup::SECP256R1,
+                    alg_handle: Default::default(),
+                    key_handle: Default::default(),
+                    public_key: Vec::new(),
+                };
 
-//                 match &test.result {
-//                     TestResult::Acceptable | TestResult::Valid => {
-//                         assert!(res.is_ok());
-//                         assert_eq!(okm[..], test.okm[..], "Failed test: {}", test.comment);
-//                     }
-//                     TestResult::Invalid => {
-//                         dbg!(&res);
-//                         assert!(res.is_err(), "Failed test: {}", test.comment)
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
+                // load the key
+                unsafe {
+                    BCryptOpenAlgorithmProvider(
+                        &mut *kx.alg_handle,
+                        BCRYPT_ECDH_ALGORITHM,
+                        None,
+                        BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
+                    )
+                    .ok()
+                    .unwrap();
+                    let bcrypt_handle = BCRYPT_HANDLE(&mut *kx.alg_handle.0);
+                    BCryptSetProperty(
+                        bcrypt_handle,
+                        BCRYPT_ECC_CURVE_NAME,
+                        &to_null_terminated_le_bytes(kx.kx_group.ecc_curve()),
+                        0,
+                    )
+                    .ok()
+                    .unwrap();
+                }
+
+                let key_blob = KeyBlobP256Private::new(&test.private_key);
+
+                unsafe {
+                    let p: *const KeyBlobP256Private = &key_blob;
+                    let p: *const u8 = p as *const u8;
+                    let slice =
+                        std::slice::from_raw_parts(p, core::mem::size_of::<KeyBlobP256Private>());
+
+                    BCryptImportKeyPair(
+                        *kx.alg_handle,
+                        BCRYPT_KEY_HANDLE::default(),
+                        BCRYPT_ECCPRIVATE_BLOB,
+                        &mut *kx.key_handle,
+                        &slice,
+                        0,
+                    )
+                    .ok()
+                    .unwrap();
+                }
+
+                let res = Box::new(kx).complete(&test.public_key);
+                let pub_key_uncompressed = test.public_key.first() == Some(&0x04);
+
+                match (&test.result, pub_key_uncompressed) {
+                    (TestResult::Acceptable, true) | (TestResult::Valid, true) => {
+                        assert!(res.is_ok());
+                        assert_eq!(res.unwrap().secret_bytes(), &test.shared_secret[..]);
+                    }
+                    _ => {
+                        assert!(res.is_err());
+                    }
+                }
+            }
+        }
+    }
+}

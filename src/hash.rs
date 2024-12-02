@@ -1,16 +1,21 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
 use rustls::crypto::hash::Output;
-use rustls::Error;
-use windows::core::{Array, Interface, HSTRING};
+use windows::core::{Array, HSTRING};
 use windows::Security::Cryptography::Core::{
     CryptographicHash, HashAlgorithmNames, HashAlgorithmProvider,
 };
 use windows::Security::Cryptography::CryptographicBuffer;
-use windows::Storage::Streams::{Buffer, IBuffer};
-use windows::Win32::System::WinRT::IBufferByteAccess;
 
 pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
 pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
+
+// Null terminated UTF-16 strings for SHA256 and SHA384
+// Is there a windows macro for this?
+const SHA256_ID: &[u8] = &[83, 0, 72, 0, 65, 0, 50, 0, 53, 0, 54, 0, 0, 0];
+const SHA384_ID: &[u8] = &[83, 0, 72, 0, 65, 0, 51, 0, 56, 0, 52, 0, 0, 0];
+
+/// The maximum hash size produced by a supported algorithm.
+pub(crate) const MAX_HASH_SIZE: usize = 48;
 
 /// Supported Hash algorithms.
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +39,13 @@ impl Algorithm {
 
     pub(crate) fn hash_algorithm_provider(&self) -> HashAlgorithmProvider {
         HashAlgorithmProvider::OpenAlgorithm(&self.name()).unwrap()
+    }
+
+    pub(crate) fn bcrypt_hash_id(&self) -> &[u8] {
+        match self {
+            Self::SHA256 => SHA256_ID,
+            Self::SHA384 => SHA384_ID,
+        }
     }
 }
 

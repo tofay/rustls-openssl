@@ -60,33 +60,13 @@ impl Algorithm {
                 )?;
                 data.copy_from_slice(encrypted_data_array.as_slice());
                 let tag_buffer = res.AuthenticationTag()?;
-
-                dbg!(&tag_buffer);
-
                 let mut tag = [0u8; TAG_LEN];
                 let mut tag_array = Array::<u8>::with_len(TAG_LEN);
                 CryptographicBuffer::CopyToByteArray(&tag_buffer, &mut tag_array)?;
                 tag.copy_from_slice(tag_array.as_slice());
                 Ok(tag)
             })
-            .map_err(|e| Error::General(e.to_string()))
-
-        // CipherCtx::new()
-        //     .and_then(|mut ctx| {
-        //         ctx.encrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
-        //         // Providing no output buffer implies input is AAD.
-        //         ctx.cipher_update(aad, None)?;
-        //         // The ciphers are all stream ciphers, so we shound encrypt the same amount of data...
-        //         let count = ctx.cipher_update_inplace(data, data.len())?;
-        //         debug_assert!(count == data.len());
-        //         // ... and no more data should be written at the end.
-        //         let rest = ctx.cipher_final(&mut [])?;
-        //         debug_assert!(rest == 0);
-        //         let mut tag = [0u8; TAG_LEN];
-        //         ctx.tag(&mut tag)?;
-        //         Ok(tag)
-        //     })
-        //     .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
+            .map_err(|e| Error::General(format!("CNfG error: {}", e.to_string())))
     }
 
     /// Decrypts in place, verifying the tag and returns the length of the
@@ -106,10 +86,12 @@ impl Algorithm {
 
         let (ciphertext, tag) = data.split_at_mut(payload_len - TAG_LEN);
 
+        dbg!(&ciphertext, &tag, &key, &nonce, &aad);
+
         SymmetricKeyAlgorithmProvider::OpenAlgorithm(&self.name())
             .and_then(|provider| {
-                let key = provider
-                    .CreateSymmetricKey(&CryptographicBuffer::CreateFromByteArray(&key)?)?;
+                let key_buffer = CryptographicBuffer::CreateFromByteArray(&key)?;
+                let key = provider.CreateSymmetricKey(&key_buffer)?;
                 let data_buffer = CryptographicBuffer::CreateFromByteArray(&ciphertext)?;
                 let aad_buffer = CryptographicBuffer::CreateFromByteArray(aad)?;
                 let nonce_buffer = CryptographicBuffer::CreateFromByteArray(nonce)?;
@@ -128,7 +110,7 @@ impl Algorithm {
                 ciphertext[..plaintext_len].copy_from_slice(plaintext_array.as_slice());
                 Ok(plaintext_len)
             })
-            .map_err(|e| Error::General(e.to_string()))
+            .map_err(|e| Error::General(format!("CNdG error: {}", e.to_string())))
 
         // CipherCtx::new()
         //     .and_then(|mut ctx| {

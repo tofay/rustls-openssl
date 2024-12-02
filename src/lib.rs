@@ -330,7 +330,7 @@ unsafe fn as_mut_bytes(buffer: &IBuffer) -> Result<&mut [u8], Error> {
                 buffer.Length()? as usize,
             ))
         })
-        .map_err(|e| Error::General(e.to_string()))
+        .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))
 }
 
 unsafe fn as_bytes(buffer: &IBuffer) -> Result<&[u8], Error> {
@@ -340,5 +340,5 @@ unsafe fn as_bytes(buffer: &IBuffer) -> Result<&[u8], Error> {
             let data = byte_acess.Buffer()?;
             Ok(std::slice::from_raw_parts(data, buffer.Length()? as usize))
         })
-        .map_err(|e| Error::General(e.to_string()))
+        .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))
 }
