@@ -37,7 +37,7 @@ struct EcKeyExchange {
 }
 
 #[cfg(not(feature = "fips"))]
-/// KXGroup for X25519
+/// `KXGroup`` for X25519
 #[derive(Debug)]
 struct X25519KxGroup {}
 
@@ -105,6 +105,13 @@ impl EcKeyExchange {
 
 impl ActiveKeyExchange for EcKeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
+        // Reject public keys that are not in uncompressed form
+        if peer_pub_key.first() != Some(&0x04) {
+            return Err(Error::PeerMisbehaved(
+                rustls::PeerMisbehaved::InvalidKeyShare,
+            ));
+        }
+
         self.load_peer_key(peer_pub_key)
             .and_then(|peer_key| {
                 let key: PKey<_> = self.priv_key.try_into()?;
@@ -163,5 +170,104 @@ impl ActiveKeyExchange for X25519KeyExchange {
 
     fn group(&self) -> NamedGroup {
         NamedGroup::X25519
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use openssl::{
+        bn::BigNum,
+        ec::{EcGroup, EcKey, EcPoint},
+        nid::Nid,
+        pkey::{Id, PKey},
+    };
+    use rustls::{crypto::ActiveKeyExchange, NamedGroup};
+    use wycheproof::{ecdh::TestName, TestResult};
+
+    use crate::kx::EcKeyExchange;
+
+    use super::X25519KeyExchange;
+
+    #[rstest::rstest]
+    #[case::secp256r1(TestName::EcdhSecp256r1, NamedGroup::secp256r1, Nid::X9_62_PRIME256V1)]
+    #[case::secp384r1(TestName::EcdhSecp384r1, NamedGroup::secp384r1, Nid::SECP384R1)]
+    fn ec(#[case] test_name: TestName, #[case] rustls_group: NamedGroup, #[case] nid: Nid) {
+        let test_set = wycheproof::ecdh::TestSet::load(test_name).unwrap();
+        let ctx = openssl::bn::BigNumContext::new().unwrap();
+
+        for test_group in &test_set.test_groups {
+            for test in &test_group.tests {
+                let group = EcGroup::from_curve_name(nid).unwrap();
+                let private_num = BigNum::from_slice(&test.private_key).unwrap();
+                let mut point = EcPoint::new(&group).unwrap();
+                point.mul_generator(&group, &private_num, &ctx).unwrap();
+                let ec_key = EcKey::from_private_components(&group, &private_num, &point).unwrap();
+
+                let kx = EcKeyExchange {
+                    priv_key: ec_key,
+                    name: rustls_group,
+                    group: EcGroup::from_curve_name(nid).unwrap(),
+                    pub_key: Vec::new(),
+                };
+
+                let res = Box::new(kx).complete(&test.public_key);
+                let pub_key_uncompressed = test.public_key.first() == Some(&0x04);
+
+                match (&test.result, pub_key_uncompressed) {
+                    (TestResult::Acceptable, true) | (TestResult::Valid, true) => {
+                        assert!(res.is_ok(), "Test failed: {:?}", test);
+                        assert_eq!(
+                            res.unwrap().secret_bytes(),
+                            &test.shared_secret[..],
+                            "Derived incorrect secret: {:?}",
+                            test
+                        );
+                    }
+                    _ => {
+                        assert!(res.is_err(), "Expected error: {:?}", test);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn x25519() {
+        let test_set = wycheproof::xdh::TestSet::load(wycheproof::xdh::TestName::X25519).unwrap();
+        for test_group in &test_set.test_groups {
+            for test in &test_group.tests {
+                let kx = X25519KeyExchange {
+                    private_key: PKey::private_key_from_raw_bytes(&test.private_key, Id::X25519)
+                        .unwrap(),
+                    public_key: Vec::new(),
+                };
+
+                let res = Box::new(kx).complete(&test.public_key);
+
+                // OpenSSL does not support producing a zero shared secret
+                let zero_shared_secret = test
+                    .flags
+                    .contains(&wycheproof::xdh::TestFlag::ZeroSharedSecret);
+
+                match (&test.result, zero_shared_secret) {
+                    (TestResult::Acceptable, false) | (TestResult::Valid, _) => match res {
+                        Ok(sharedsecret) => {
+                            assert_eq!(
+                                sharedsecret.secret_bytes(),
+                                &test.shared_secret[..],
+                                "Derived incorrect secret: {:?}",
+                                test
+                            );
+                        }
+                        Err(e) => {
+                            panic!("Test failed: {:?}. Error {:?}", test, e);
+                        }
+                    },
+                    _ => {
+                        assert!(res.is_err(), "Expected error: {:?}", test);
+                    }
+                }
+            }
+        }
     }
 }
