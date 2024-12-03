@@ -186,6 +186,7 @@ mod test {
 
     use crate::kx::EcKeyExchange;
 
+    #[cfg(not(feature = "fips"))]
     use super::X25519KeyExchange;
 
     #[rstest::rstest]
@@ -231,6 +232,7 @@ mod test {
         }
     }
 
+    #[cfg(not(feature = "fips"))]
     #[test]
     fn x25519() {
         let test_set = wycheproof::xdh::TestSet::load(wycheproof::xdh::TestName::X25519).unwrap();
