@@ -1,13 +1,28 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
 use rustls::crypto::hash::Output;
-use windows::core::{Array, HSTRING};
+use windows::core::{Array, Owned, HSTRING, PCWSTR, PWSTR};
 use windows::Security::Cryptography::Core::{
     CryptographicHash, HashAlgorithmNames, HashAlgorithmProvider,
 };
 use windows::Security::Cryptography::CryptographicBuffer;
+use windows::Win32::Security::Cryptography::{
+    BCryptCreateHash, BCryptDuplicateHash, BCryptFinishHash, BCryptHash, BCryptHashData,
+    BCryptOpenAlgorithmProvider, BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE,
+    BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS, BCRYPT_SHA256_ALGORITHM, BCRYPT_SHA384_ALGORITHM,
+};
 
-pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
-pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
+use crate::load_algorithm;
+
+pub(crate) static SHA256: Algorithm<32> = Algorithm::<32> {
+    id: BCRYPT_SHA256_ALGORITHM,
+    rustls_algorithm: rustls::crypto::hash::HashAlgorithm::SHA256,
+    id_bytes: SHA256_ID,
+};
+pub(crate) static SHA384: Algorithm<48> = Algorithm::<48> {
+    id: BCRYPT_SHA384_ALGORITHM,
+    rustls_algorithm: rustls::crypto::hash::HashAlgorithm::SHA384,
+    id_bytes: SHA384_ID,
+};
 
 // Null terminated UTF-16 strings for SHA256 and SHA384
 // Is there a windows macro for this?
@@ -17,94 +32,93 @@ const SHA384_ID: &[u8] = &[83, 0, 72, 0, 65, 0, 51, 0, 56, 0, 52, 0, 0, 0];
 /// The maximum hash size produced by a supported algorithm.
 pub(crate) const MAX_HASH_SIZE: usize = 48;
 
-/// Supported Hash algorithms.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Algorithm {
-    SHA256,
-    SHA384,
+#[derive(Clone, Copy)]
+pub(crate) struct Algorithm<const SIZE: usize> {
+    pub id: PCWSTR,
+    pub id_bytes: &'static [u8],
+    pub rustls_algorithm: rustls::crypto::hash::HashAlgorithm,
 }
 
-/// A Hash context
-#[derive(Clone)]
-struct Context(CryptographicHash);
-
-impl Algorithm {
-    pub(crate) fn name(&self) -> HSTRING {
-        match &self {
-            Self::SHA256 => HashAlgorithmNames::Sha256(),
-            Self::SHA384 => HashAlgorithmNames::Sha384(),
-        }
-        .unwrap()
-    }
-
-    pub(crate) fn hash_algorithm_provider(&self) -> HashAlgorithmProvider {
-        HashAlgorithmProvider::OpenAlgorithm(&self.name()).unwrap()
-    }
-
-    pub(crate) fn bcrypt_hash_id(&self) -> &[u8] {
-        match self {
-            Self::SHA256 => SHA256_ID,
-            Self::SHA384 => SHA384_ID,
-        }
-    }
+pub(crate) struct Context<const SIZE: usize> {
+    pub alg: Algorithm<SIZE>,
+    pub handle: Owned<BCRYPT_HASH_HANDLE>,
 }
 
-impl rustls::crypto::hash::Hash for Algorithm {
+unsafe impl<const SIZE: usize> Send for Algorithm<SIZE> {}
+unsafe impl<const SIZE: usize> Sync for Algorithm<SIZE> {}
+unsafe impl<const SIZE: usize> Send for Context<SIZE> {}
+unsafe impl<const SIZE: usize> Sync for Context<SIZE> {}
+
+impl<const SIZE: usize> rustls::crypto::hash::Hash for Algorithm<SIZE> {
     fn start(&self) -> Box<dyn rustls::crypto::hash::Context> {
-        Box::new(Context(
-            self.hash_algorithm_provider().CreateHash().unwrap(),
-        ))
+        let alg_handle = load_algorithm(self.id);
+        let mut hash_handle = Owned::default();
+        unsafe {
+            BCryptCreateHash(*alg_handle, &mut *hash_handle, None, None, 0)
+                .ok()
+                .unwrap();
+        }
+        Box::new(Context {
+            alg: *self,
+            handle: hash_handle,
+        })
     }
 
     fn hash(&self, data: &[u8]) -> Output {
-        //convert u8 into IBuffer
-        let input_buffer = CryptographicBuffer::CreateFromByteArray(&data).unwrap();
-        let output_buffer = self
-            .hash_algorithm_provider()
-            .HashData(&input_buffer)
-            .unwrap();
-        let mut array = Array::new();
-        CryptographicBuffer::CopyToByteArray(&output_buffer, &mut array).unwrap();
-        Output::new(&array[..])
+        let alg_handle = load_algorithm(self.id);
+        let mut output = [0u8; SIZE];
+        unsafe {
+            BCryptHash(*alg_handle, None, &data, &mut output)
+                .ok()
+                .unwrap();
+        }
+        Output::new(&output)
     }
 
     fn output_len(&self) -> usize {
-        self.hash_algorithm_provider().HashLength().unwrap() as usize
+        SIZE
     }
 
     fn algorithm(&self) -> rustls::crypto::hash::HashAlgorithm {
-        match &self {
-            Algorithm::SHA256 => rustls::crypto::hash::HashAlgorithm::SHA256,
-            Algorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
-        }
+        self.rustls_algorithm
     }
 }
 
-impl Context {
-    fn finish_inner(self) -> Output {
-        let output_buffer = self.0.GetValueAndReset().unwrap();
-        let mut array = Array::new();
-        CryptographicBuffer::CopyToByteArray(&output_buffer, &mut array).unwrap();
-        Output::new(&array[..])
-    }
-}
-
-impl rustls::crypto::hash::Context for Context {
+impl<const SIZE: usize> rustls::crypto::hash::Context for Context<SIZE> {
     fn fork_finish(&self) -> Output {
-        let new_context = Box::new(self.clone());
-        new_context.finish_inner()
+        let mut new_handle = Owned::default();
+        let mut output = [0u8; SIZE];
+        unsafe {
+            BCryptDuplicateHash(*self.handle, &mut *new_handle, None, 0)
+                .ok()
+                .unwrap();
+            BCryptFinishHash(*new_handle, &mut output, 0).ok().unwrap();
+        };
+        Output::new(&output)
     }
 
     fn fork(&self) -> Box<dyn rustls::crypto::hash::Context> {
-        Box::new(self.clone())
+        let mut new_handle = Owned::default();
+        unsafe {
+            BCryptDuplicateHash(*self.handle, &mut *new_handle, None, 0)
+                .ok()
+                .unwrap();
+        }
+        Box::new(Context {
+            alg: self.alg,
+            handle: new_handle,
+        })
     }
 
     fn finish(self: Box<Self>) -> Output {
-        self.finish_inner()
+        let mut output = [0u8; SIZE];
+        unsafe {
+            BCryptFinishHash(*self.handle, &mut output, 0).ok().unwrap();
+        };
+        Output::new(&output)
     }
 
     fn update(&mut self, data: &[u8]) {
-        let buffer = CryptographicBuffer::CreateFromByteArray(&data).unwrap();
-        self.0.Append(&buffer).unwrap();
+        unsafe { BCryptHashData(*self.handle, data, 0).ok().unwrap() }
     }
 }

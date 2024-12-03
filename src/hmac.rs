@@ -1,117 +1,77 @@
 use std::i16::MAX;
 
-use crate::hash::Algorithm;
-use rustls::crypto::hash::Hash as _;
+use crate::hash::{Algorithm, Context};
+use rustls::crypto::hash::{Context as _, Hash as _, HashAlgorithm};
 use rustls::crypto::hmac::{Key, Tag};
-use windows::core::Array;
+use windows::core::{Array, Owned};
 use windows::Security::Cryptography::Core::{
     CryptographicKey, MacAlgorithmNames, MacAlgorithmProvider,
 };
 use windows::Security::Cryptography::CryptographicBuffer;
 use windows::Storage::Streams::IBuffer;
+use windows::Win32::Security::Cryptography::{
+    BCryptCreateHash, BCryptOpenAlgorithmProvider, BCRYPT_ALG_HANDLE_HMAC_FLAG,
+    BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
+};
 
-#[derive(Clone, Debug, Copy)]
-pub(crate) struct Hmac(pub(crate) Algorithm);
-
-impl Hmac {
-    fn mac_algorithm_provider(&self) -> MacAlgorithmProvider {
-        let name = match self.0 {
-            Algorithm::SHA256 => MacAlgorithmNames::HmacSha256().unwrap(),
-            Algorithm::SHA384 => MacAlgorithmNames::HmacSha384().unwrap(),
-        };
-        MacAlgorithmProvider::OpenAlgorithm(&name).unwrap()
-    }
-
-    fn max_key_len(&self) -> usize {
-        match self.0 {
-            Algorithm::SHA256 => 64,
-            Algorithm::SHA384 => 128,
-        }
-    }
-}
-
-const MAX_KEY_LEN: usize = 128;
-struct HmacKey {
-    key: [u8; MAX_KEY_LEN],
-    size: usize,
-    hmac: Hmac,
-}
-
-impl rustls::crypto::hmac::Hmac for Hmac {
+impl<const SIZE: usize> rustls::crypto::hmac::Hmac for Algorithm<SIZE> {
     fn with_key(&self, key: &[u8]) -> Box<dyn Key> {
-        let mut key_buffer = [0u8; MAX_KEY_LEN];
-
-        if key.len() <= self.max_key_len() {
-            key_buffer[..key.len()].copy_from_slice(key);
-            Box::new(HmacKey {
-                key: key_buffer,
-                size: key.len(),
-                hmac: *self,
-            })
-        } else {
-            // hash the key if it is too long
-            let output = self.0.hash(key);
-            key_buffer[..output.as_ref().len()].copy_from_slice(output.as_ref());
-            Box::new(HmacKey {
-                key: key_buffer,
-                size: output.as_ref().len(),
-                hmac: *self,
-            })
+        let mut alg_handle = Owned::default();
+        let mut hash_handle = Owned::default();
+        unsafe {
+            BCryptOpenAlgorithmProvider(
+                &mut *alg_handle,
+                self.id,
+                None,
+                BCRYPT_ALG_HANDLE_HMAC_FLAG,
+            )
+            .ok()
+            .unwrap();
+            BCryptCreateHash(*alg_handle, &mut *hash_handle, None, Some(key), 0)
+                .ok()
+                .unwrap();
         }
+        Box::new(Context::<SIZE> {
+            alg: *self,
+            handle: hash_handle,
+        })
     }
 
     fn hash_output_len(&self) -> usize {
-        self.0.output_len()
+        SIZE
     }
 }
 
-impl Key for HmacKey {
-    fn sign(&self, data: &[&[u8]]) -> Tag {
-        self.sign_concat(&[], data, &[])
-    }
-
+impl<const SIZE: usize> Key for Context<SIZE> {
     fn sign_concat(&self, first: &[u8], middle: &[&[u8]], last: &[u8]) -> Tag {
-        let key_buffer = CryptographicBuffer::CreateFromByteArray(&self.key[..self.size]).unwrap();
-        let hash = self
-            .hmac
-            .mac_algorithm_provider()
-            .CreateHash(&key_buffer)
-            .unwrap();
-
-        let first = CryptographicBuffer::CreateFromByteArray(first).unwrap();
-        hash.Append(&first).unwrap();
+        let mut new = self.fork();
+        new.update(first);
         for d in middle {
-            let d = CryptographicBuffer::CreateFromByteArray(d).unwrap();
-            hash.Append(&d).unwrap();
+            new.update(d);
         }
-        let last = CryptographicBuffer::CreateFromByteArray(last).unwrap();
-        hash.Append(&last).unwrap();
-
-        let tag_buffer = hash.GetValueAndReset().unwrap();
-        let mut tag = [0u8; MAX_KEY_LEN];
-        let tag_length = tag_buffer.Length().unwrap() as usize;
-        let mut tag_array = Array::<u8>::with_len(tag_length);
-
-        CryptographicBuffer::CopyToByteArray(&tag_buffer, &mut tag_array).unwrap();
-        tag[..tag_length].copy_from_slice(tag_array.as_slice());
-        Tag::new(&tag[..tag_length])
+        new.update(last);
+        Tag::new(new.finish().as_ref())
     }
 
     fn tag_len(&self) -> usize {
-        self.hmac.0.output_len()
+        SIZE
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{hash::Algorithm, hmac::Hmac};
+    use crate::hash::{Algorithm, SHA256, SHA384};
     use rustls::crypto::hmac::{Hmac as _, Tag};
     use wycheproof::TestResult;
 
-    fn test_hmac(alg: Algorithm) {
-        let test_name = match alg {
-            Algorithm::SHA256 => wycheproof::mac::TestName::HmacSha256,
-            Algorithm::SHA384 => wycheproof::mac::TestName::HmacSha384,
+    #[rstest::rstest]
+    #[case(SHA256)]
+    #[case(SHA384)]
+    fn hmac<const SIZE: usize>(#[case] alg: Algorithm<SIZE>) {
+        let test_name = match alg.rustls_algorithm {
+            rustls::crypto::hash::HashAlgorithm::SHA256 => wycheproof::mac::TestName::HmacSha256,
+            rustls::crypto::hash::HashAlgorithm::SHA384 => wycheproof::mac::TestName::HmacSha384,
+            _ => panic!("Unsupported algorithm"),
         };
         let test_set = wycheproof::mac::TestSet::load(test_name).unwrap();
 
@@ -121,8 +81,7 @@ mod test {
             for test in group.tests {
                 counter += 1;
 
-                let hmac = Hmac(alg);
-                let key = hmac.with_key(&test.key);
+                let key = alg.with_key(&test.key);
                 let actual_tag = key.sign(&[&test.msg]);
 
                 let expected_tag = if test.tag.len() <= Tag::MAX_LEN {
@@ -162,15 +121,5 @@ mod test {
 
         // Ensure we ran some tests.
         assert!(counter > 50);
-    }
-
-    #[test]
-    fn test_sha256() {
-        test_hmac(Algorithm::SHA256);
-    }
-
-    #[test]
-    fn test_sha384() {
-        test_hmac(Algorithm::SHA384);
     }
 }

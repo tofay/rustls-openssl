@@ -61,6 +61,10 @@ use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
 use rustls::Error;
+use windows::core::Owned;
+use windows::Win32::Security::Cryptography::{
+    BCryptOpenAlgorithmProvider, BCRYPT_ALG_HANDLE, BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
+};
 use windows::{
     core::{Interface, PCWSTR},
     Storage::Streams::IBuffer,
@@ -341,4 +345,19 @@ unsafe fn as_bytes(buffer: &IBuffer) -> Result<&[u8], Error> {
             Ok(std::slice::from_raw_parts(data, buffer.Length()? as usize))
         })
         .map_err(|e| Error::General(format!("CNG error: {}", e.to_string())))
+}
+
+pub(crate) fn load_algorithm(alg_id: PCWSTR) -> Owned<BCRYPT_ALG_HANDLE> {
+    let mut alg_handle = windows::core::Owned::default();
+    unsafe {
+        BCryptOpenAlgorithmProvider(
+            &mut *alg_handle,
+            alg_id,
+            None,
+            BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
+        )
+        .ok()
+        .unwrap();
+    }
+    alg_handle
 }

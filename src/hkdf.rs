@@ -1,5 +1,5 @@
 use crate::hash::{Algorithm as HashAlgorithm, MAX_HASH_SIZE};
-use crate::hmac::Hmac;
+use crate::load_algorithm;
 use rustls::crypto::hash::Hash as _;
 use rustls::crypto::hmac::{Hmac as _, Tag};
 use rustls::crypto::tls13::{
@@ -19,21 +19,20 @@ use windows::Win32::Security::Cryptography::{
 // for using the BCrypt HKDF API.
 
 /// HKDF implementation using HMAC with the specified Hash Algorithm
-pub(crate) struct Hkdf(pub(crate) HashAlgorithm);
+pub(crate) struct Hkdf<const HASH_SIZE: usize>(pub(crate) HashAlgorithm<HASH_SIZE>);
 
-struct HkdfExpander {
+struct HkdfExpander<const HASH_SIZE: usize> {
     key_handle: Owned<BCRYPT_KEY_HANDLE>,
-    hash: HashAlgorithm,
+    hash: HashAlgorithm<HASH_SIZE>,
 }
 
-unsafe impl Send for HkdfExpander {}
-unsafe impl Sync for HkdfExpander {}
+unsafe impl<const HASH_SIZE: usize> Send for HkdfExpander<HASH_SIZE> {}
+unsafe impl<const HASH_SIZE: usize> Sync for HkdfExpander<HASH_SIZE> {}
 
-impl RustlsHkdf for Hkdf {
+impl<const HASH_SIZE: usize> RustlsHkdf for Hkdf<HASH_SIZE> {
     fn extract_from_zero_ikm(&self, salt: Option<&[u8]>) -> Box<dyn RustlsHkdfExpander> {
-        let hash_size = self.0.output_len();
-        let secret = [0u8; MAX_HASH_SIZE];
-        self.extract_from_secret(salt, &secret[..hash_size])
+        let secret = [0u8; HASH_SIZE];
+        self.extract_from_secret(salt, &secret)
     }
 
     fn extract_from_secret(
@@ -41,20 +40,10 @@ impl RustlsHkdf for Hkdf {
         salt: Option<&[u8]>,
         secret: &[u8],
     ) -> Box<dyn RustlsHkdfExpander> {
-        let hash_size = self.0.output_len();
+        let alg_handle = load_algorithm(BCRYPT_HKDF_ALGORITHM);
         let mut key_handle = Owned::default();
 
         unsafe {
-            let mut alg_handle = Owned::default();
-            BCryptOpenAlgorithmProvider(
-                &mut *alg_handle,
-                BCRYPT_HKDF_ALGORITHM,
-                None,
-                BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
-            )
-            .ok()
-            .unwrap();
-
             BCryptGenerateSymmetricKey(*alg_handle, &mut *key_handle, None, secret, 0)
                 .ok()
                 .unwrap();
@@ -62,7 +51,7 @@ impl RustlsHkdf for Hkdf {
             Win32BCryptSetProperty(
                 bcrypt_handle,
                 BCRYPT_HKDF_HASH_ALGORITHM,
-                &self.0.bcrypt_hash_id(),
+                &self.0.id_bytes,
                 0,
             )
             .ok()
@@ -71,14 +60,14 @@ impl RustlsHkdf for Hkdf {
             Win32BCryptSetProperty(
                 bcrypt_handle,
                 BCRYPT_HKDF_SALT_AND_FINALIZE,
-                salt.unwrap_or(&[0u8; MAX_HASH_SIZE][..hash_size]),
+                salt.unwrap_or(&[0u8; HASH_SIZE]),
                 0,
             )
             .ok()
             .unwrap();
         };
 
-        Box::new(HkdfExpander {
+        Box::new(HkdfExpander::<HASH_SIZE> {
             key_handle: key_handle,
             hash: self.0,
         })
@@ -86,19 +75,10 @@ impl RustlsHkdf for Hkdf {
 
     fn expander_for_okm(&self, okm: &OkmBlock) -> Box<dyn RustlsHkdfExpander> {
         let okm = okm.as_ref();
+        let alg_handle = load_algorithm(BCRYPT_HKDF_ALGORITHM);
         let mut key_handle = Owned::default();
 
         unsafe {
-            let mut alg_handle = Owned::default();
-            BCryptOpenAlgorithmProvider(
-                &mut *alg_handle,
-                BCRYPT_HKDF_ALGORITHM,
-                None,
-                BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
-            )
-            .ok()
-            .unwrap();
-
             BCryptGenerateSymmetricKey(*alg_handle, &mut *key_handle, None, okm, 0)
                 .ok()
                 .unwrap();
@@ -107,7 +87,7 @@ impl RustlsHkdf for Hkdf {
             Win32BCryptSetProperty(
                 bcrypt_handle,
                 BCRYPT_HKDF_HASH_ALGORITHM,
-                &self.0.bcrypt_hash_id(),
+                &self.0.id_bytes,
                 0,
             )
             .ok()
@@ -125,14 +105,14 @@ impl RustlsHkdf for Hkdf {
             .unwrap();
         };
 
-        Box::new(HkdfExpander {
+        Box::new(HkdfExpander::<HASH_SIZE> {
             key_handle,
             hash: self.0,
         })
     }
 
     fn hmac_sign(&self, key: &OkmBlock, message: &[u8]) -> Tag {
-        Hmac(self.0).with_key(key.as_ref()).sign(&[message])
+        self.0.with_key(key.as_ref()).sign(&[message])
     }
 }
 
@@ -148,7 +128,7 @@ extern "system" {
     ) -> NTSTATUS;
 }
 
-impl RustlsHkdfExpander for HkdfExpander {
+impl<const HASH_SIZE: usize> RustlsHkdfExpander for HkdfExpander<HASH_SIZE> {
     fn expand_slice(&self, info: &[&[u8]], output: &mut [u8]) -> Result<(), OutputLengthError> {
         // BCrypt expects a single info buffer
         let info = info
@@ -190,11 +170,10 @@ impl RustlsHkdfExpander for HkdfExpander {
     }
 
     fn expand_block(&self, info: &[&[u8]]) -> OkmBlock {
-        let mut output = [0u8; MAX_HASH_SIZE];
-        let len = self.hash_len();
-        self.expand_slice(info, &mut output[..len])
+        let mut output = [0u8; HASH_SIZE];
+        self.expand_slice(info, &mut output)
             .expect("HDKF-Expand failed");
-        OkmBlock::new(&output[..len])
+        OkmBlock::new(&output)
     }
 
     fn hash_len(&self) -> usize {
@@ -209,7 +188,7 @@ mod test {
 
     use super::Hkdf;
 
-    fn test_hkdf(hkdf: Hkdf, test_name: TestName) {
+    fn test_hkdf<const HASH_SIZE: usize>(hkdf: Hkdf<HASH_SIZE>, test_name: TestName) {
         let test_set = wycheproof::hkdf::TestSet::load(test_name).unwrap();
 
         for test_group in test_set.test_groups {
@@ -240,13 +219,13 @@ mod test {
 
     #[test]
     fn hkdf_sha256() {
-        let hkdf = Hkdf(crate::hash::Algorithm::SHA256);
+        let hkdf = Hkdf(crate::hash::SHA256);
         test_hkdf(hkdf, TestName::HkdfSha256);
     }
 
     #[test]
     fn hkdf_sha384() {
-        let hkdf = Hkdf(crate::hash::Algorithm::SHA384);
+        let hkdf = Hkdf(crate::hash::SHA384);
         test_hkdf(hkdf, TestName::HkdfSha384);
     }
 }

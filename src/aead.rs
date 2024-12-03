@@ -85,9 +85,6 @@ impl Algorithm {
         }
 
         let (ciphertext, tag) = data.split_at_mut(payload_len - TAG_LEN);
-
-        dbg!(&ciphertext, &tag, &key, &nonce, &aad);
-
         SymmetricKeyAlgorithmProvider::OpenAlgorithm(&self.name())
             .and_then(|provider| {
                 let key_buffer = CryptographicBuffer::CreateFromByteArray(&key)?;
@@ -111,19 +108,6 @@ impl Algorithm {
                 Ok(plaintext_len)
             })
             .map_err(|e| Error::General(format!("CNdG error: {}", e.to_string())))
-
-        // CipherCtx::new()
-        //     .and_then(|mut ctx| {
-        //         ctx.decrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
-        //         ctx.cipher_update(aad, None)?;
-        //         ctx.set_tag(tag)?;
-        //         let count = ctx.cipher_update_inplace(ciphertext, ciphertext.len())?;
-        //         debug_assert!(count == ciphertext.len());
-        //         let rest = ctx.cipher_final(&mut [])?;
-        //         debug_assert!(rest == 0);
-        //         Ok(count + rest)
-        //     })
-        //     .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 }
 

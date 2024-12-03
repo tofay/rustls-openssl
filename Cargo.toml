@@ -43,4 +43,5 @@ wycheproof = { version = "0.6.0", default-features = false, features = [
     "hkdf",
     "mac",
     "ecdh",
+    "xdh"
 ] }
