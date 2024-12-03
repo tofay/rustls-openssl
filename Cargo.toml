@@ -36,4 +36,6 @@ webpki-roots = "0.26"
 wycheproof = { version = "0.6.0", default-features = false, features = [
     "aead",
     "hkdf",
+    "ecdh",
+    "xdh"
 ] }
