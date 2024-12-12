@@ -10,18 +10,18 @@ repository = "https://github.com/tofay/rustls-openssl"
 readme = "README.md"
 
 [dependencies]
-foreign-types-shared = { version = "0.1.1", optional = true }
+foreign-types = "0.3.1"
+once_cell = "1.8.0"
 openssl = "0.10.68"
 openssl-sys = "0.9.104"
 rustls = { version = "0.23.0", default-features = false }
 rustls-webpki = { version = "0.102.2", default-features = false }
-once_cell = "1.8.0"
 zeroize = "1.8.1"
 
 [features]
 default = ["tls12"]
 fips = []
-tls12 = ["rustls/tls12", "foreign-types-shared"]
+tls12 = ["rustls/tls12"]
 
 [dev-dependencies]
 hex = "0.4.3"
