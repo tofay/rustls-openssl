@@ -29,9 +29,9 @@
 //!
 //! In descending order of preference:
 //!
+//! * X25519
 //! * SECP384R1
 //! * SECP256R1
-//! * X25519
 //!
 //! If the `fips` feature is enabled then X25519 will not be available.
 //!
@@ -62,7 +62,7 @@ mod aead;
 mod hash;
 mod hkdf;
 mod hmac;
-mod kx;
+pub mod kx_group;
 mod openssl_internal;
 #[cfg(feature = "tls12")]
 mod prf;
@@ -89,14 +89,7 @@ pub mod cipher_suite {
     pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
 
-pub use kx::ALL_KX_GROUPS;
-
-pub mod kx_group {
-    //! Supported key exchange groups.
-    #[cfg(not(feature = "fips"))]
-    pub use super::kx::X25519;
-    pub use super::kx::{SECP256R1, SECP384R1};
-}
+pub use kx_group::ALL_KX_GROUPS;
 pub use signer::KeyProvider;
 pub use verify::SUPPORTED_SIG_ALGS;
 
@@ -245,11 +238,11 @@ pub mod fips {
     //! See [rustls documenation on FIPS](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html#3-validate-the-fips-status-of-your-clientconfigserverconfig-at-run-time).
 
     /// Returns `true` if OpenSSL is running in FIPS mode.
-    #[cfg(fips_module)]
+    #[cfg(not(ossl300))]
     pub(crate) fn enabled() -> bool {
         openssl::fips::enabled()
     }
-    #[cfg(not(fips_module))]
+    #[cfg(ossl300)]
     pub(crate) fn enabled() -> bool {
         unsafe { openssl_sys::EVP_default_properties_is_fips_enabled(std::ptr::null_mut()) == 1 }
     }
@@ -262,7 +255,7 @@ pub mod fips {
     /// On OpenSSL 3 this loads a FIPS provider, which must be available.
     ///
     /// Panics if FIPS cannot be enabled
-    #[cfg(fips_module)]
+    #[cfg(not(ossl300))]
     pub fn enable() {
         openssl::fips::enable(true).expect("Failed to enable FIPS mode.");
     }
@@ -275,7 +268,7 @@ pub mod fips {
     /// On OpenSSL 3 this loads a FIPS provider, which must be available.
     ///
     /// Panics if FIPS cannot be enabled
-    #[cfg(not(fips_module))]
+    #[cfg(ossl300)]
     pub fn enable() {
         // Use OnceCell to ensure that the provider is only loaded once
         use once_cell::sync::OnceCell;

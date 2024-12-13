@@ -6,7 +6,7 @@ const OPENSSL_NO_CHACHA: &str = "OPENSSL_NO_CHACHA";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(chacha)");
-    println!("cargo:rustc-check-cfg=cfg(fips_module)");
+    println!("cargo:rustc-check-cfg=cfg(ossl300)");
     println!("cargo:rustc-check-cfg=cfg(ossl320)");
     // Determine whether to work around https://github.com/openssl/openssl/issues/23448
     // according to the OpenSSL version
@@ -18,8 +18,8 @@ fn main() {
             println!("cargo:rustc-cfg=bugged_add_hkdf_info");
         }
 
-        if version < 0x3_00_00_00_0 {
-            println!("cargo:rustc-cfg=fips_module");
+        if version >= 0x3_00_00_00_0 {
+            println!("cargo:rustc-cfg=ossl300");
         }
 
         if version >= 0x3_02_00_00_0 {

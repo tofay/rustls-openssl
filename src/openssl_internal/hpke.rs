@@ -13,15 +13,7 @@ use openssl::{
 };
 use openssl_sys::{c_int, EVP_PKEY, OSSL_LIB_CTX};
 
-use super::cvt;
-
-fn cvt_p<T>(r: *mut T) -> Result<*mut T, ErrorStack> {
-    if r.is_null() {
-        Err(ErrorStack::get())
-    } else {
-        Ok(r)
-    }
-}
+use super::{cvt, cvt_p};
 
 pub enum OSSL_HPKE_CTX {}
 
