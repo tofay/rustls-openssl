@@ -54,9 +54,7 @@
 //! - `tls12`: Enables TLS 1.2 cipher suites. Enabled by default.
 //! - `fips`: Enabling this feature removes non-FIPS-approved cipher suites and key exchanges. Disabled by default. See [fips].
 #![warn(missing_docs)]
-use openssl::error::ErrorStack;
 use openssl::rand::rand_priv_bytes;
-use openssl_sys::c_int;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
 
@@ -65,6 +63,7 @@ mod hash;
 mod hkdf;
 mod hmac;
 mod kx;
+mod openssl_internal;
 #[cfg(feature = "tls12")]
 mod prf;
 mod quic;
@@ -225,14 +224,6 @@ impl rustls::crypto::SecureRandom for SecureRandom {
     }
 }
 
-pub(crate) fn cvt(r: c_int) -> Result<i32, ErrorStack> {
-    if r <= 0 {
-        Err(ErrorStack::get())
-    } else {
-        Ok(r)
-    }
-}
-
 pub mod fips {
     //! # FIPS support
     //!
@@ -288,12 +279,14 @@ pub mod fips {
     pub fn enable() {
         // Use OnceCell to ensure that the provider is only loaded once
         use once_cell::sync::OnceCell;
+
+        use crate::openssl_internal;
         static PROVIDER: OnceCell<openssl::provider::Provider> = OnceCell::new();
         PROVIDER.get_or_init(|| {
             let provider = openssl::provider::Provider::load(None, "fips")
                 .expect("Failed to load FIPS provider.");
             unsafe {
-                crate::cvt(openssl_sys::EVP_default_properties_enable_fips(
+                openssl_internal::cvt(openssl_sys::EVP_default_properties_enable_fips(
                     std::ptr::null_mut(),
                     1,
                 ))
