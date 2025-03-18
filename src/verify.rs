@@ -8,12 +8,12 @@ use openssl::{
     rsa::{Padding, Rsa},
     sign::{RsaPssSaltlen, Verifier},
 };
+use rustls::pki_types::alg_id;
 use rustls::{
     crypto::WebPkiSupportedAlgorithms,
     pki_types::{AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm},
     SignatureScheme,
 };
-use webpki::alg_id;
 
 /// A [WebPkiSupportedAlgorithms] value defining the supported signature algorithms.
 pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {

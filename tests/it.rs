@@ -9,13 +9,12 @@ use openssl::rsa::Rsa;
 use rstest::rstest;
 use rustls::crypto::{CryptoProvider, SupportedKxGroup};
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::PrivateKeyDer;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
 use rustls_openssl::{custom_provider, default_provider};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
-use webpki::types::CertificateDer;
 
 pub mod server;
 
