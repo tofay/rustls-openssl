@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use openssl::pkey::PKey;
 use rcgen::SignatureAlgorithm;
+use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::Acceptor;
 use rustls::ServerConfig;
@@ -26,7 +27,7 @@ pub enum Alg {
 /// The server will handle a single connection.
 ///
 /// Returns the port the server is listening on and the CA certificate used to sign the server certificate.
-pub fn start_server(alg: Alg) -> (u16, CertificateDer<'static>) {
+pub fn start_server(alg: Alg, provider: Option<CryptoProvider>) -> (u16, CertificateDer<'static>) {
     #[cfg(feature = "fips")]
     {
         rustls_openssl::fips::enable();
@@ -34,7 +35,7 @@ pub fn start_server(alg: Alg) -> (u16, CertificateDer<'static>) {
 
     let pki = TestPki::for_algorithm(alg);
     let ca_cert_der = pki.ca_cert_der.clone();
-    let server_config = pki.server_config();
+    let server_config = pki.with_provider(provider.unwrap_or(rustls_openssl::default_provider()));
 
     let listener = std::net::TcpListener::bind("[::]:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -121,14 +122,13 @@ impl TestPki {
         }
     }
 
-    fn server_config(self) -> Arc<ServerConfig> {
-        let mut server_config =
-            ServerConfig::builder_with_provider(rustls_openssl::default_provider().into())
-                .with_safe_default_protocol_versions()
-                .unwrap()
-                .with_no_client_auth()
-                .with_single_cert(vec![self.server_cert_der], self.server_key_der)
-                .unwrap();
+    fn with_provider(self, provider: CryptoProvider) -> Arc<ServerConfig> {
+        let mut server_config = ServerConfig::builder_with_provider(provider.into())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![self.server_cert_der], self.server_key_der)
+            .unwrap();
 
         server_config.key_log = Arc::new(rustls::KeyLogFile::new());
 

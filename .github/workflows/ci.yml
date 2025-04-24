@@ -24,10 +24,10 @@ jobs:
       - name: Cache build artifacts
         uses: Swatinem/rust-cache@v2
       - name: cargo test
-        run: cargo test
+        run: cargo test --features vendored
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
-        run: cargo test --doc
+        run: cargo test --doc --features vendored
   lint:
     name: Lint
     runs-on: ubuntu-latest

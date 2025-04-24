@@ -1,7 +1,7 @@
 [package]
 name = "rustls-openssl"
 authors = ["Tom Fay <tom@teamfay.co.uk>"]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "Rustls crypto provider for OpenSSL"
@@ -18,9 +18,11 @@ rustls = { version = "0.23.20", default-features = false }
 zeroize = "1.8.1"
 
 [features]
-default = ["tls12"]
+default = ["tls12", "prefer-post-quantum", "vendored"]
 fips = []
 tls12 = ["rustls/tls12"]
+prefer-post-quantum = []
+vendored = ["openssl/vendored"]
 
 [dev-dependencies]
 hex = "0.4.3"

@@ -29,11 +29,15 @@
 //!
 //! In descending order of preference:
 //!
+//! * X25519MLKEM768 (OpenSSL 3.5+)
 //! * SECP384R1
 //! * SECP256R1
 //! * X25519
+//! * MLKEM768 (OpenSSL 3.5+)
 //!
 //! If the `fips` feature is enabled then X25519 will not be available.
+//! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
+//! MLKEM768 is not offered by default, but can be used by specifying it in the `custom_provider()` function.
 //!
 //! ## Usage
 //!
@@ -42,7 +46,7 @@
 //! ```toml
 //! [dependencies]
 //! rustls = { version = "0.23.0", features = ["tls12", "std"], default-features = false }
-//! rustls_openssl = "0.1.0"
+//! rustls_openssl = "0.3.0"
 //! ```
 //!
 //! ### Configuration
@@ -52,7 +56,9 @@
 //!
 //! # Features
 //! - `tls12`: Enables TLS 1.2 cipher suites. Enabled by default.
+//! - `prefer-post-quantum`: Enables X25519MLKEM768 as the first key exchange group. Enabled by default.
 //! - `fips`: Enabling this feature removes non-FIPS-approved cipher suites and key exchanges. Disabled by default. See [fips].
+//! - `vendored`: Enables vendored OpenSSL. Disabled by default.
 #![warn(missing_docs)]
 use openssl::rand::rand_priv_bytes;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
@@ -62,7 +68,7 @@ mod aead;
 mod hash;
 mod hkdf;
 mod hmac;
-mod kx;
+pub mod kx_group;
 mod openssl_internal;
 #[cfg(feature = "tls12")]
 mod prf;
@@ -89,18 +95,10 @@ pub mod cipher_suite {
     pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
 
-pub use kx::ALL_KX_GROUPS;
-
-pub mod kx_group {
-    //! Supported key exchange groups.
-    #[cfg(not(feature = "fips"))]
-    pub use super::kx::X25519;
-    pub use super::kx::{SECP256R1, SECP384R1};
-}
 pub use signer::KeyProvider;
 pub use verify::SUPPORTED_SIG_ALGS;
 
-/// Returns an OpenSSL-based [CryptoProvider] using all available cipher suites ([ALL_CIPHER_SUITES]) and key exchange groups ([ALL_KX_GROUPS]).
+/// Returns an OpenSSL-based [CryptoProvider] using default available cipher suites ([ALL_CIPHER_SUITES]) and key exchange groups ([ALL_KX_GROUPS]).
 ///
 /// Sample usage:
 /// ```rust
@@ -124,7 +122,7 @@ pub use verify::SUPPORTED_SIG_ALGS;
 pub fn default_provider() -> CryptoProvider {
     CryptoProvider {
         cipher_suites: ALL_CIPHER_SUITES.to_vec(),
-        kx_groups: ALL_KX_GROUPS.to_vec(),
+        kx_groups: kx_group::DEFAULT_KX_GROUPS.to_vec(),
         signature_verification_algorithms: SUPPORTED_SIG_ALGS,
         secure_random: &SecureRandom,
         key_provider: &KeyProvider,
