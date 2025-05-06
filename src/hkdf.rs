@@ -134,7 +134,7 @@ impl Drop for HkdfExpander {
 #[cfg(test)]
 mod test {
     use rustls::crypto::tls13::Hkdf;
-    use wycheproof::{hkdf::TestName, TestResult};
+    use wycheproof::{TestResult, hkdf::TestName};
 
     fn test_hkdf(hkdf: &dyn Hkdf, test_name: TestName) {
         let test_set = wycheproof::hkdf::TestSet::load(test_name).unwrap();

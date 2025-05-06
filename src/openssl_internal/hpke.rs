@@ -2,7 +2,7 @@
 #![allow(unused)]
 #![allow(non_camel_case_types)]
 use std::{
-    ffi::{c_char, CString},
+    ffi::{CString, c_char},
     ptr,
 };
 
@@ -11,7 +11,7 @@ use openssl::{
     error::ErrorStack,
     pkey::{PKey, PKeyRef, Private},
 };
-use openssl_sys::{c_int, EVP_PKEY, OSSL_LIB_CTX};
+use openssl_sys::{EVP_PKEY, OSSL_LIB_CTX, c_int};
 
 use super::cvt;
 
@@ -125,7 +125,7 @@ extern "C" {
     ) -> c_int;
     fn OSSL_HPKE_CTX_set1_authpriv(ctx: *mut OSSL_HPKE_CTX, priv_: *mut EVP_PKEY) -> c_int;
     fn OSSL_HPKE_CTX_set1_authpub(ctx: *mut OSSL_HPKE_CTX, pub_: *const u8, publen: usize)
-        -> c_int;
+    -> c_int;
     fn OSSL_HPKE_CTX_set1_psk(
         ctx: *mut OSSL_HPKE_CTX,
         pskid: *const c_char,

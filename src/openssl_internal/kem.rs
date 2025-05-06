@@ -8,7 +8,7 @@ use openssl::{
     pkey::{PKey, PKeyRef, Public},
     pkey_ctx::{PkeyCtx, PkeyCtxRef},
 };
-use openssl_sys::{c_int, EVP_PKEY_new, EVP_PKEY, EVP_PKEY_CTX, OSSL_LIB_CTX, OSSL_PARAM};
+use openssl_sys::{EVP_PKEY, EVP_PKEY_CTX, EVP_PKEY_new, OSSL_LIB_CTX, OSSL_PARAM, c_int};
 
 use super::{cvt, cvt_p};
 
@@ -181,11 +181,11 @@ impl<T> PKeyRefExt for PKeyRef<T> {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn EVP_PKEY_encapsulate_init(ctx: *mut EVP_PKEY_CTX, params: *const OSSL_PARAM) -> c_int;
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn EVP_PKEY_encapsulate(
         ctx: *mut EVP_PKEY_CTX,
         wrappedkey: *mut c_uchar,
@@ -194,11 +194,14 @@ extern "C" {
         genkeylen: *mut usize,
     ) -> c_int;
 }
-extern "C" {
-    pub fn EVP_PKEY_decapsulate_init(ctx: *mut EVP_PKEY_CTX, params: *const OSSL_PARAM) -> c_int;
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_decapsulate_init(
+        ctx: *mut EVP_PKEY_CTX,
+        params: *const OSSL_PARAM,
+    ) -> c_int;
 }
-extern "C" {
-    pub fn EVP_PKEY_decapsulate(
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_decapsulate(
         ctx: *mut EVP_PKEY_CTX,
         unwrapped: *mut c_uchar,
         unwrappedlen: *mut usize,
@@ -207,16 +210,16 @@ extern "C" {
     ) -> c_int;
 }
 
-extern "C" {
-    pub fn EVP_PKEY_CTX_new_from_name(
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_CTX_new_from_name(
         libctx: *mut OSSL_LIB_CTX,
         name: *const c_char,
         propquery: *const c_char,
     ) -> *mut EVP_PKEY_CTX;
 }
 
-extern "C" {
-    pub fn EVP_PKEY_get_octet_string_param(
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_get_octet_string_param(
         pkey: *const EVP_PKEY,
         key_name: *const c_char,
         buf: *mut c_uchar,
@@ -224,16 +227,16 @@ extern "C" {
         out_sz: *mut usize,
     ) -> c_int;
 }
-extern "C" {
-    pub fn EVP_PKEY_set1_encoded_public_key(
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_set1_encoded_public_key(
         pkey: *mut EVP_PKEY,
         pub_: *const c_uchar,
         publen: usize,
     ) -> c_int;
 }
-extern "C" {
-    pub fn EVP_PKEY_paramgen_init(ctx: *mut EVP_PKEY_CTX) -> c_int;
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_paramgen_init(ctx: *mut EVP_PKEY_CTX) -> c_int;
 }
-extern "C" {
-    pub fn EVP_PKEY_paramgen(ctx: *mut EVP_PKEY_CTX, ppkey: *mut *mut EVP_PKEY) -> c_int;
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_paramgen(ctx: *mut EVP_PKEY_CTX, ppkey: *mut *mut EVP_PKEY) -> c_int;
 }

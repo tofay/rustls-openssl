@@ -15,14 +15,11 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Cache build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
       - name: cargo test
         run: cargo test --features vendored
       # https://github.com/rust-lang/cargo/issues/6669
@@ -32,21 +29,15 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - name: Cache build artifacts
-        uses: Swatinem/rust-cache@v2
-      - name: cargo fmt (check)
-        run: cargo fmt -- --check -l
-      - name: cargo clippy (warnings)
-        run: cargo clippy --all-targets -- -D warnings
-      - name: cargo clippy --no-default-features (warnings)
-        run: cargo clippy --no-default-features --all-targets -- -D warnings
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt -- --check -l
+      - run: cargo clippy --features vendored --all-targets -- -D warnings
+      - run: cargo clippy --features vendored --no-default-features --all-targets -- -D warnings
 
   test-fips-1-1-1:
     name: Test using FIPS openssl 1.1.1
@@ -56,14 +47,11 @@ jobs:
     steps:
       - name: Install dependencies
         run: dnf install -y gcc openssl-devel
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Cache build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
       # Use single thread on FIPS to avoid running out of entropy
       - name: Run cargo test --features fips
         run: cargo test --tests --features fips -- --test-threads=1
@@ -76,36 +64,27 @@ jobs:
     steps:
       - name: Install dependencies
         run: dnf install -y gcc openssl-devel
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Cache build artifacts
-        uses: Swatinem/rust-cache@v2
-      - name: Run cargo test --features fips
-        run: cargo test --tests --features fips -- --test-threads=1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --tests --features fips -- --test-threads=1
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
           components: llvm-tools
-      - name: Cache build artifacts
-        uses: Swatinem/rust-cache@v2
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate coverage
         run: cargo llvm-cov --lcov --output-path lcov.info
-      - name: Report to codecov.io
-        uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v5
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -109,8 +109,8 @@ mod test {
         ec::{EcGroup, EcKey, EcPoint},
         nid::Nid,
     };
-    use rustls::{crypto::ActiveKeyExchange, NamedGroup};
-    use wycheproof::{ecdh::TestName, TestResult};
+    use rustls::{NamedGroup, crypto::ActiveKeyExchange};
+    use wycheproof::{TestResult, ecdh::TestName};
 
     use super::EcKeyExchange;
 

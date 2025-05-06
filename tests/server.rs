@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use openssl::pkey::PKey;
 use rcgen::SignatureAlgorithm;
+use rustls::ServerConfig;
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::Acceptor;
-use rustls::ServerConfig;
 
 /// Algorithm to use for the server keypair. Required to workaround
 /// https://github.com/openssl/openssl/issues/10468 and rcgen::SignatureAlgorithm not

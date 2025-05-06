@@ -10,9 +10,9 @@ use openssl::{
 };
 use rustls::pki_types::alg_id;
 use rustls::{
+    SignatureScheme,
     crypto::WebPkiSupportedAlgorithms,
     pki_types::{AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm},
-    SignatureScheme,
 };
 
 /// A [WebPkiSupportedAlgorithms] value defining the supported signature algorithms.

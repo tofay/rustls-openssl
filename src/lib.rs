@@ -61,8 +61,8 @@
 //! - `vendored`: Enables vendored OpenSSL. Disabled by default.
 #![warn(missing_docs)]
 use openssl::rand::rand_priv_bytes;
-use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 use rustls::SupportedCipherSuite;
+use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 
 mod aead;
 mod hash;

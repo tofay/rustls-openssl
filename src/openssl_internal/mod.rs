@@ -4,6 +4,7 @@ use openssl_sys::c_int;
 
 #[cfg(ossl320)]
 mod hpke;
+#[cfg(ossl350)]
 pub(crate) mod kem;
 #[cfg(feature = "tls12")]
 pub(crate) mod prf;
@@ -17,6 +18,7 @@ pub(crate) fn cvt(r: c_int) -> Result<i32, ErrorStack> {
     }
 }
 
+#[cfg(ossl320)]
 #[inline]
 fn cvt_p<T>(r: *mut T) -> Result<*mut T, ErrorStack> {
     if r.is_null() {

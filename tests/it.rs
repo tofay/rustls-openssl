@@ -11,7 +11,7 @@ use rustls::crypto::{CryptoProvider, SupportedKxGroup};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
-use rustls_openssl::{custom_provider, default_provider, ALL_CIPHER_SUITES};
+use rustls_openssl::{custom_provider, default_provider};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -191,7 +191,7 @@ fn test_client_and_server(
 fn test_classical_completion() {
     // Run against a server that only supports the classical component
     let provider = custom_provider(
-        ALL_CIPHER_SUITES.to_vec(),
+        rustls_openssl::ALL_CIPHER_SUITES.to_vec(),
         vec![rustls_openssl::kx_group::X25519],
     );
 
@@ -442,9 +442,10 @@ fn sign_and_verify(
         .map(|(_k, v)| *v)
         .expect("verifying provider supports this scheme");
     assert!(!algs.is_empty());
-    assert!(algs
-        .iter()
-        .any(|alg| { alg.verify_signature(pub_key, data, &signature).is_ok() }));
+    assert!(
+        algs.iter()
+            .any(|alg| { alg.verify_signature(pub_key, data, &signature).is_ok() })
+    );
 }
 
 #[cfg(feature = "fips")]
