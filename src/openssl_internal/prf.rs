@@ -3,7 +3,7 @@
 use core::ffi::c_void;
 use foreign_types::ForeignTypeRef;
 use openssl::{error::ErrorStack, md::MdRef, pkey_ctx::PkeyCtxRef};
-use openssl_sys::{c_int, EVP_MD, EVP_PKEY_ALG_CTRL, EVP_PKEY_CTX, EVP_PKEY_OP_DERIVE};
+use openssl_sys::{EVP_MD, EVP_PKEY_ALG_CTRL, EVP_PKEY_CTX, EVP_PKEY_OP_DERIVE, c_int};
 
 use super::cvt;
 
@@ -24,14 +24,16 @@ const EVP_PKEY_CTRL_TLS_SEED: c_int = EVP_PKEY_ALG_CTRL + 2;
 
 #[allow(non_snake_case)]
 unsafe fn EVP_PKEY_CTX_set_tls1_prf_md(ctx: *mut EVP_PKEY_CTX, md: *const EVP_MD) -> c_int {
-    EVP_PKEY_CTX_ctrl(
-        ctx,
-        -1,
-        EVP_PKEY_OP_DERIVE,
-        EVP_PKEY_CTRL_TLS_MD,
-        0,
-        md as *mut c_void,
-    )
+    unsafe {
+        EVP_PKEY_CTX_ctrl(
+            ctx,
+            -1,
+            EVP_PKEY_OP_DERIVE,
+            EVP_PKEY_CTRL_TLS_MD,
+            0,
+            md as *mut c_void,
+        )
+    }
 }
 
 #[allow(non_snake_case)]
@@ -40,14 +42,16 @@ unsafe fn EVP_PKEY_CTX_set1_tls1_prf_secret(
     sec: *const u8,
     seclen: c_int,
 ) -> c_int {
-    EVP_PKEY_CTX_ctrl(
-        ctx,
-        -1,
-        EVP_PKEY_OP_DERIVE,
-        EVP_PKEY_CTRL_TLS_SECRET,
-        seclen,
-        sec as *mut c_void,
-    )
+    unsafe {
+        EVP_PKEY_CTX_ctrl(
+            ctx,
+            -1,
+            EVP_PKEY_OP_DERIVE,
+            EVP_PKEY_CTRL_TLS_SECRET,
+            seclen,
+            sec as *mut c_void,
+        )
+    }
 }
 
 #[allow(non_snake_case)]
@@ -56,14 +60,16 @@ unsafe fn EVP_PKEY_CTX_add1_tls1_prf_seed(
     seed: *const u8,
     seedlen: c_int,
 ) -> c_int {
-    EVP_PKEY_CTX_ctrl(
-        ctx,
-        -1,
-        EVP_PKEY_OP_DERIVE,
-        EVP_PKEY_CTRL_TLS_SEED,
-        seedlen,
-        seed as *mut c_void,
-    )
+    unsafe {
+        EVP_PKEY_CTX_ctrl(
+            ctx,
+            -1,
+            EVP_PKEY_OP_DERIVE,
+            EVP_PKEY_CTRL_TLS_SEED,
+            seedlen,
+            seed as *mut c_void,
+        )
+    }
 }
 
 pub(crate) fn set_tls1_prf_secret<T>(

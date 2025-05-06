@@ -2,7 +2,7 @@
 #![allow(unused)]
 #![allow(non_camel_case_types)]
 use std::{
-    ffi::{c_char, CString},
+    ffi::{CString, c_char},
     ptr,
 };
 
@@ -11,7 +11,7 @@ use openssl::{
     error::ErrorStack,
     pkey::{PKey, PKeyRef, Private},
 };
-use openssl_sys::{c_int, EVP_PKEY, OSSL_LIB_CTX};
+use openssl_sys::{EVP_PKEY, OSSL_LIB_CTX, c_int};
 
 use super::cvt;
 
@@ -62,16 +62,16 @@ const OSSL_HPKE_SUITE_DEFAULT: OSSL_HPKE_SUITE = OSSL_HPKE_SUITE {
     aead_id: OSSL_HPKE_AEAD_ID_AES_GCM_128,
 };
 
-extern "C" {
-    fn OSSL_HPKE_CTX_new(
+unsafe extern "C" {
+    unsafe fn OSSL_HPKE_CTX_new(
         mode: c_int,
         suite: OSSL_HPKE_SUITE,
         role: c_int,
         libctx: *mut OSSL_LIB_CTX,
         propq: *const c_char,
     ) -> *mut OSSL_HPKE_CTX;
-    fn OSSL_HPKE_CTX_free(ctx: *mut OSSL_HPKE_CTX);
-    fn OSSL_HPKE_encap(
+    unsafe fn OSSL_HPKE_CTX_free(ctx: *mut OSSL_HPKE_CTX);
+    unsafe fn OSSL_HPKE_encap(
         ctx: *mut OSSL_HPKE_CTX,
         enc: *mut u8,
         enclen: *mut usize,
@@ -80,7 +80,7 @@ extern "C" {
         info: *const u8,
         infolen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_seal(
+    unsafe fn OSSL_HPKE_seal(
         ctx: *mut OSSL_HPKE_CTX,
         ct: *mut u8,
         ctlen: *mut usize,
@@ -89,7 +89,7 @@ extern "C" {
         pt: *const u8,
         ptlen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_keygen(
+    unsafe fn OSSL_HPKE_keygen(
         suite: OSSL_HPKE_SUITE,
         pub_: *mut u8,
         publen: *mut usize,
@@ -99,7 +99,7 @@ extern "C" {
         libctx: *mut OSSL_LIB_CTX,
         propq: *const c_char,
     ) -> c_int;
-    fn OSSL_HPKE_decap(
+    unsafe fn OSSL_HPKE_decap(
         ctx: *mut OSSL_HPKE_CTX,
         enc: *const u8,
         enclen: usize,
@@ -107,7 +107,7 @@ extern "C" {
         info: *const u8,
         infolen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_open(
+    unsafe fn OSSL_HPKE_open(
         ctx: *mut OSSL_HPKE_CTX,
         pt: *mut u8,
         ptlen: *mut usize,
@@ -116,27 +116,34 @@ extern "C" {
         ct: *const u8,
         ctlen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_export(
+    unsafe fn OSSL_HPKE_export(
         ctx: *mut OSSL_HPKE_CTX,
         secret: *mut u8,
         secretlen: usize,
         label: *const u8,
         labellen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_CTX_set1_authpriv(ctx: *mut OSSL_HPKE_CTX, priv_: *mut EVP_PKEY) -> c_int;
-    fn OSSL_HPKE_CTX_set1_authpub(ctx: *mut OSSL_HPKE_CTX, pub_: *const u8, publen: usize)
-        -> c_int;
-    fn OSSL_HPKE_CTX_set1_psk(
+    unsafe fn OSSL_HPKE_CTX_set1_authpriv(ctx: *mut OSSL_HPKE_CTX, priv_: *mut EVP_PKEY) -> c_int;
+    unsafe fn OSSL_HPKE_CTX_set1_authpub(
+        ctx: *mut OSSL_HPKE_CTX,
+        pub_: *const u8,
+        publen: usize,
+    ) -> c_int;
+    unsafe fn OSSL_HPKE_CTX_set1_psk(
         ctx: *mut OSSL_HPKE_CTX,
         pskid: *const c_char,
         psk: *const u8,
         psklen: usize,
     ) -> c_int;
-    fn OSSL_HPKE_CTX_set1_ikme(ctx: *mut OSSL_HPKE_CTX, ikme: *const u8, ikmelen: usize) -> c_int;
-    fn OSSL_HPKE_CTX_set_seq(ctx: *mut OSSL_HPKE_CTX, seq: u64) -> c_int;
-    fn OSSL_HPKE_CTX_get_seq(ctx: *mut OSSL_HPKE_CTX, seq: *mut u64) -> c_int;
-    fn OSSL_HPKE_suite_check(suite: OSSL_HPKE_SUITE) -> c_int;
-    fn OSSL_HPKE_get_grease_value(
+    unsafe fn OSSL_HPKE_CTX_set1_ikme(
+        ctx: *mut OSSL_HPKE_CTX,
+        ikme: *const u8,
+        ikmelen: usize,
+    ) -> c_int;
+    unsafe fn OSSL_HPKE_CTX_set_seq(ctx: *mut OSSL_HPKE_CTX, seq: u64) -> c_int;
+    unsafe fn OSSL_HPKE_CTX_get_seq(ctx: *mut OSSL_HPKE_CTX, seq: *mut u64) -> c_int;
+    unsafe fn OSSL_HPKE_suite_check(suite: OSSL_HPKE_SUITE) -> c_int;
+    unsafe fn OSSL_HPKE_get_grease_value(
         suite_in: *const OSSL_HPKE_SUITE,
         suite: *mut OSSL_HPKE_SUITE,
         enc: *mut u8,
@@ -146,10 +153,10 @@ extern "C" {
         libctx: *mut OSSL_LIB_CTX,
         propq: *const c_char,
     ) -> c_int;
-    fn OSSL_HPKE_str2suite(str_: *const c_char, suite: *mut OSSL_HPKE_SUITE) -> c_int;
-    fn OSSL_HPKE_get_ciphertext_size(suite: OSSL_HPKE_SUITE, clearlen: usize) -> usize;
-    fn OSSL_HPKE_get_public_encap_size(suite: OSSL_HPKE_SUITE) -> usize;
-    fn OSSL_HPKE_get_recommended_ikmelen(suite: OSSL_HPKE_SUITE) -> usize;
+    unsafe fn OSSL_HPKE_str2suite(str_: *const c_char, suite: *mut OSSL_HPKE_SUITE) -> c_int;
+    unsafe fn OSSL_HPKE_get_ciphertext_size(suite: OSSL_HPKE_SUITE, clearlen: usize) -> usize;
+    unsafe fn OSSL_HPKE_get_public_encap_size(suite: OSSL_HPKE_SUITE) -> usize;
+    unsafe fn OSSL_HPKE_get_recommended_ikmelen(suite: OSSL_HPKE_SUITE) -> usize;
 }
 
 /// HPKE authentication modes.

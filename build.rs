@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(chacha)");
     println!("cargo:rustc-check-cfg=cfg(fips_module)");
     println!("cargo:rustc-check-cfg=cfg(ossl320)");
+    println!("cargo:rustc-check-cfg=cfg(ossl350)");
     // Determine whether to work around https://github.com/openssl/openssl/issues/23448
     // according to the OpenSSL version
     println!("cargo:rustc-check-cfg=cfg(bugged_add_hkdf_info)");
@@ -24,6 +25,10 @@ fn main() {
 
         if version >= 0x3_02_00_00_0 {
             println!("cargo:rustc-cfg=ossl320");
+        }
+
+        if version >= 0x3_05_00_00_0 {
+            println!("cargo:rustc-cfg=ossl350");
         }
     }
 

@@ -1,8 +1,9 @@
 use crate::aead;
-use openssl::symm::{encrypt, Cipher};
+use openssl::symm::{Cipher, encrypt};
 use rustls::{
+    Error,
     crypto::cipher::{AeadKey, Iv, Nonce},
-    quic, Error,
+    quic,
 };
 
 pub(crate) struct KeyBuilder {
@@ -218,8 +219,8 @@ impl HeaderProtectionKey {
 #[cfg(test)]
 mod test {
     use rustls::{
-        quic::{Keys, Version},
         Side,
+        quic::{Keys, Version},
     };
 
     use super::super::tls13::TLS13_AES_128_GCM_SHA256_INTERNAL;
