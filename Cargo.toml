@@ -18,7 +18,7 @@ rustls = { version = "0.23.20", default-features = false }
 zeroize = "1.8.1"
 
 [features]
-default = ["tls12", "prefer-post-quantum", "vendored"]
+default = ["tls12", "prefer-post-quantum"]
 fips = []
 tls12 = ["rustls/tls12"]
 prefer-post-quantum = []
