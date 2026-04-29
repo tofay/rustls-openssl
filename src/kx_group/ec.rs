@@ -33,7 +33,7 @@ pub const SECP384R1: &dyn SupportedKxGroup = &EcKxGroup {
 };
 
 impl SupportedKxGroup for EcKxGroup {
-    fn start(&self) -> Result<Box<(dyn ActiveKeyExchange)>, Error> {
+    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
         EcGroup::from_curve_name(self.nid)
             .and_then(|group| {
                 let priv_key = EcKey::generate(&group)?;
