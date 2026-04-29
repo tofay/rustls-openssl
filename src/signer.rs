@@ -108,7 +108,8 @@ impl SigningKey for PKey {
                 .map(|scheme| Box::new(self.signer(*scheme)) as Box<dyn rustls::sign::Signer>),
 
             SignatureAlgorithm::ED25519 => {
-                if offered.contains(&SignatureScheme::ED25519) {
+                if crate::verify::ed25519_available() && offered.contains(&SignatureScheme::ED25519)
+                {
                     Some(Box::new(Signer {
                         key: Arc::clone(&self.0),
                         scheme: SignatureScheme::ED25519,

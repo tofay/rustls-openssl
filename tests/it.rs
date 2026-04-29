@@ -18,6 +18,12 @@ use std::sync::Arc;
 
 pub mod server;
 
+fn suite_is_available(suite: CipherSuite) -> bool {
+    rustls_openssl::available_cipher_suites()
+        .iter()
+        .any(|supported| supported.suite() == suite)
+}
+
 fn test_with_provider(
     provider: CryptoProvider,
     port: u16,
@@ -89,14 +95,11 @@ fn test_with_provider(
     server::Alg::PKCS_ECDSA_P256_SHA256,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
-#[cfg_attr(
-    all(chacha, not(feature = "fips")),
-    case::tls13_chacha20_poly1305_sha256(
-        rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
-        rustls_openssl::kx_group::SECP256R1,
-        server::Alg::PKCS_ECDSA_P256_SHA256,
-        CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
-    )
+#[case::tls13_chacha20_poly1305_sha256(
+    rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+    rustls_openssl::kx_group::SECP256R1,
+    server::Alg::PKCS_ECDSA_P256_SHA256,
+    CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
 )]
 #[cfg_attr(
     feature = "tls12",
@@ -132,7 +135,7 @@ fn test_with_provider(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    all(feature = "tls12", chacha, not(feature = "fips")),
+    feature = "tls12",
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -179,6 +182,10 @@ fn test_client_and_server(
     #[case] alg: server::Alg,
     #[case] expected: CipherSuite,
 ) {
+    if !suite_is_available(suite.suite()) {
+        return;
+    }
+
     // Run against a server using our default provider
     let (port, certificate) = start_server(alg, None);
     let provider = custom_provider(vec![suite], vec![group]);
@@ -189,6 +196,10 @@ fn test_client_and_server(
 #[cfg(ossl350)]
 #[test]
 fn test_classical_completion() {
+    if rustls_openssl::kx_group::X25519.start().is_err() {
+        return;
+    }
+
     // Run against a server that only supports the classical component
     let provider = custom_provider(
         rustls_openssl::ALL_CIPHER_SUITES.to_vec(),
@@ -210,7 +221,7 @@ fn test_classical_completion() {
 
 #[rstest]
 #[cfg_attr(
-    all(feature = "tls12", chacha, not(feature = "fips")),
+    feature = "tls12",
     case(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP384R1,
@@ -227,6 +238,10 @@ fn test_to_internet(
     #[case] group: &'static dyn SupportedKxGroup,
     #[case] expected: CipherSuite,
 ) {
+    if !suite_is_available(suite.suite()) {
+        return;
+    }
+
     #[cfg(feature = "fips")]
     {
         rustls_openssl::fips::enable();
