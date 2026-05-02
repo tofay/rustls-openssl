@@ -56,7 +56,7 @@ impl KxGroup {
 }
 
 impl SupportedKxGroup for KxGroup {
-    fn start(&self) -> Result<Box<(dyn ActiveKeyExchange)>, Error> {
+    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
         self.start_internal()
             .map(|kx| Box::new(kx) as Box<dyn ActiveKeyExchange>)
     }
@@ -125,7 +125,7 @@ struct X25519HybridKeyExchange {
 }
 
 impl SupportedKxGroup for X25519HybridKxGroup {
-    fn start(&self) -> Result<Box<(dyn ActiveKeyExchange)>, Error> {
+    fn start(&self) -> Result<Box<dyn ActiveKeyExchange>, Error> {
         self.0.start_internal().map(|inner| {
             let pub_key = inner.pub_key();
             let classical_pub_key = pub_key[pub_key.len() - 32..].to_vec();

@@ -108,7 +108,6 @@ impl RustlsHkdfExpander for HkdfExpander {
 }
 
 fn add_hkdf_info<T>(ctx: &mut PkeyCtxRef<T>, info: &[&[u8]]) -> Result<(), ErrorStack> {
-
     #[cfg(bugged_add_hkdf_info)]
     let bugged_version = true;
 
