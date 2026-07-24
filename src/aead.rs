@@ -7,7 +7,6 @@ use rustls::crypto::cipher::NONCE_LEN;
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
-    #[cfg(all(chacha, not(feature = "fips")))]
     ChaCha20Poly1305,
 }
 
@@ -19,13 +18,24 @@ impl Algorithm {
         match self {
             Self::Aes128Gcm => Cipher::aes_128_gcm(),
             Self::Aes256Gcm => Cipher::aes_256_gcm(),
-            #[cfg(all(chacha, not(feature = "fips")))]
             Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
         }
     }
 
     pub(crate) fn key_size(self) -> usize {
         self.openssl_cipher().key_length()
+    }
+
+    /// Returns `true` when OpenSSL can initialize this AEAD at runtime.
+    pub(crate) fn is_available(self) -> bool {
+        let key = vec![0u8; self.key_size()];
+        let nonce = [0u8; NONCE_LEN];
+
+        CipherCtx::new()
+            .and_then(|mut ctx| {
+                ctx.encrypt_init(Some(self.openssl_cipher()), Some(&key), Some(&nonce))
+            })
+            .is_ok()
     }
 
     /// Encrypts data in place and returns the tag.
@@ -95,7 +105,6 @@ mod test {
             super::Algorithm::Aes128Gcm | super::Algorithm::Aes256Gcm => {
                 wycheproof::aead::TestName::AesGcm
             }
-            #[cfg(all(chacha, not(feature = "fips")))]
             super::Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
         };
         let test_set = wycheproof::aead::TestSet::load(test_name).unwrap();
@@ -178,9 +187,17 @@ mod test {
         test_aead(super::Algorithm::Aes256Gcm);
     }
 
-    #[cfg(all(chacha, not(feature = "fips")))]
+    #[test]
+    fn test_aes_available() {
+        assert!(super::Algorithm::Aes128Gcm.is_available());
+        assert!(super::Algorithm::Aes256Gcm.is_available());
+    }
+
     #[test]
     fn test_chacha() {
+        if !super::Algorithm::ChaCha20Poly1305.is_available() {
+            return;
+        }
         test_aead(super::Algorithm::ChaCha20Poly1305);
     }
 }

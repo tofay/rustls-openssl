@@ -119,14 +119,16 @@ mod test {
     #[case::secp384r1(TestName::EcdhSecp384r1, NamedGroup::secp384r1, Nid::SECP384R1)]
     fn test_ec_kx(#[case] test_name: TestName, #[case] rustls_group: NamedGroup, #[case] nid: Nid) {
         let test_set = wycheproof::ecdh::TestSet::load(test_name).unwrap();
-        let ctx = openssl::bn::BigNumContext::new().unwrap();
+        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
 
         for test_group in &test_set.test_groups {
             for test in &test_group.tests {
                 let group = EcGroup::from_curve_name(nid).unwrap();
                 let private_num = BigNum::from_slice(&test.private_key).unwrap();
                 let mut point = EcPoint::new(&group).unwrap();
-                point.mul_generator(&group, &private_num, &ctx).unwrap();
+                point
+                    .mul_generator2(&group, &private_num, &mut ctx)
+                    .unwrap();
                 let ec_key = EcKey::from_private_components(&group, &private_num, &point).unwrap();
 
                 let kx = EcKeyExchange {

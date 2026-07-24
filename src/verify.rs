@@ -1,4 +1,5 @@
 use core::fmt;
+use once_cell::sync::Lazy;
 use openssl::{
     bn::BigNumContext,
     ec::{EcGroup, EcKey, EcPoint},
@@ -25,7 +26,6 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
         ECDSA_P521_SHA256,
         ECDSA_P521_SHA384,
         ECDSA_P521_SHA512,
-        #[cfg(not(feature = "fips"))]
         ED25519,
         RSA_PSS_SHA512,
         RSA_PSS_SHA384,
@@ -45,7 +45,6 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
             &[ECDSA_P256_SHA256, ECDSA_P384_SHA256, ECDSA_P521_SHA256],
         ),
         (SignatureScheme::ECDSA_NISTP521_SHA512, &[ECDSA_P521_SHA512]),
-        #[cfg(not(feature = "fips"))]
         (SignatureScheme::ED25519, &[ED25519]),
         (SignatureScheme::RSA_PSS_SHA512, &[RSA_PSS_SHA512]),
         (SignatureScheme::RSA_PSS_SHA384, &[RSA_PSS_SHA384]),
@@ -55,6 +54,62 @@ pub static SUPPORTED_SIG_ALGS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgori
         (SignatureScheme::RSA_PKCS1_SHA256, &[RSA_PKCS1_SHA256]),
     ],
 };
+
+/// A [WebPkiSupportedAlgorithms] value defining the supported signature algorithms,
+/// excluding ED25519 which is not available on fips enabled OpenSSL < 3.4.
+static SUPPORTED_SIG_ALGS_NO_ED25519: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
+    all: &[
+        ECDSA_P256_SHA256,
+        ECDSA_P256_SHA384,
+        ECDSA_P384_SHA256,
+        ECDSA_P384_SHA384,
+        ECDSA_P521_SHA256,
+        ECDSA_P521_SHA384,
+        ECDSA_P521_SHA512,
+        RSA_PSS_SHA512,
+        RSA_PSS_SHA384,
+        RSA_PSS_SHA256,
+        RSA_PKCS1_SHA512,
+        RSA_PKCS1_SHA384,
+        RSA_PKCS1_SHA256,
+    ],
+    mapping: &[
+        (
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            &[ECDSA_P384_SHA384, ECDSA_P256_SHA384, ECDSA_P521_SHA384],
+        ),
+        (
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            &[ECDSA_P256_SHA256, ECDSA_P384_SHA256, ECDSA_P521_SHA256],
+        ),
+        (SignatureScheme::ECDSA_NISTP521_SHA512, &[ECDSA_P521_SHA512]),
+        (SignatureScheme::RSA_PSS_SHA512, &[RSA_PSS_SHA512]),
+        (SignatureScheme::RSA_PSS_SHA384, &[RSA_PSS_SHA384]),
+        (SignatureScheme::RSA_PSS_SHA256, &[RSA_PSS_SHA256]),
+        (SignatureScheme::RSA_PKCS1_SHA512, &[RSA_PKCS1_SHA512]),
+        (SignatureScheme::RSA_PKCS1_SHA384, &[RSA_PKCS1_SHA384]),
+        (SignatureScheme::RSA_PKCS1_SHA256, &[RSA_PKCS1_SHA256]),
+    ],
+};
+
+static AVAILABLE_SIG_ALGS: Lazy<&'static WebPkiSupportedAlgorithms> = Lazy::new(|| {
+    // ED25519 won't be available on fips enabled OpenSSL < 3.4.
+    if ed25519_available() {
+        &SUPPORTED_SIG_ALGS
+    } else {
+        &SUPPORTED_SIG_ALGS_NO_ED25519
+    }
+});
+
+static ED25519_AVAILABLE: Lazy<bool> = Lazy::new(|| PKey::generate_ed25519().is_ok());
+
+pub(crate) fn available_supported_sig_algs() -> &'static WebPkiSupportedAlgorithms {
+    *AVAILABLE_SIG_ALGS
+}
+
+pub(crate) fn ed25519_available() -> bool {
+    *ED25519_AVAILABLE
+}
 
 /// RSA PKCS#1 1.5 signatures using SHA-256.
 pub(crate) static RSA_PKCS1_SHA256: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
@@ -98,7 +153,6 @@ pub(crate) static RSA_PSS_SHA512: &dyn SignatureVerificationAlgorithm = &OpenSsl
     signature_alg_id: alg_id::RSA_PSS_SHA512,
 };
 
-#[cfg(not(feature = "fips"))]
 /// ED25519 signatures according to RFC 8410
 pub(crate) static ED25519: &dyn SignatureVerificationAlgorithm = &OpenSslAlgorithm {
     display_name: "ED25519",

@@ -6,9 +6,10 @@
 //!
 //! Supported cipher suites are listed below, in descending order of preference.
 //!
-//! If OpenSSL is compiled with the `OPENSSL_NO_CHACHA` option, or the `fips` feature is enabled,
-//! then the suites using ChaCha20-Poly1305 will not be available.
-//! If the `tls12` feature is disabled then the TLS 1.2 cipher suites will not be available.
+//! The default provider includes all of these cipher suites, filtered based on runtime availability
+//! of the encryption algorithm, i.e when running against OpenSSL compiled without ChaCha20-Poly1305 support, the ChaCha20-Poly1305 cipher suites will be filtered out.
+//! If the `tls12` feature is disabled, then the TLS 1.2 cipher suites will not be available.
+//! Use [available_cipher_suites()] to get the runtime-available set of these cipher suites.
 //!
 //! ### TLS 1.3
 //!
@@ -29,15 +30,18 @@
 //!
 //! In descending order of preference:
 //!
-//! * X25519MLKEM768 (OpenSSL 3.5+)
+//! * X25519MLKEM768
 //! * SECP384R1
 //! * SECP256R1
 //! * X25519
-//! * MLKEM768 (OpenSSL 3.5+)
+//! * MLKEM768
 //!
-//! If the `fips` feature is enabled then X25519 will not be available.
 //! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
 //! MLKEM768 is not offered by default, but can be used by specifying it in the `custom_provider()` function.
+//!
+//! The default provider includes all of these key exchange groups, filtered based on runtime availability of the algorithm.
+//! Use [kx_group::available_default_groups()] to get the runtime-available set of default key exchange groups,
+//! and [kx_group::available_groups()] for the runtime-available set of all key exchange groups.
 //!
 //! ## Usage
 //!
@@ -57,8 +61,8 @@
 //! # Features
 //! - `tls12`: Enables TLS 1.2 cipher suites. Enabled by default.
 //! - `prefer-post-quantum`: Enables X25519MLKEM768 as the first key exchange group. Enabled by default.
-//! - `fips`: Enabling this feature removes non-FIPS-approved cipher suites and key exchanges. Disabled by default. See [fips].
 //! - `vendored`: Enables vendored OpenSSL. Disabled by default.
+//! - `fips`: No longer used.
 #![warn(missing_docs)]
 use openssl::rand::rand_priv_bytes;
 use rustls::SupportedCipherSuite;
@@ -84,21 +88,18 @@ pub mod cipher_suite {
     #[cfg(feature = "tls12")]
     pub use super::tls12::{
         TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     };
-    #[cfg(all(feature = "tls12", chacha, not(feature = "fips")))]
-    pub use super::tls12::{
-        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    pub use super::tls13::{
+        TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384, TLS13_CHACHA20_POLY1305_SHA256,
     };
-    #[cfg(all(chacha, not(feature = "fips")))]
-    pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
-    pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
 
 pub use signer::KeyProvider;
 pub use verify::SUPPORTED_SIG_ALGS;
 
-/// Returns an OpenSSL-based [CryptoProvider] using default available cipher suites ([ALL_CIPHER_SUITES]) and key exchange groups ([ALL_KX_GROUPS]).
+/// Returns an OpenSSL-based [CryptoProvider] using default available cipher suites ([available_cipher_suites()]) and key exchange groups ([kx_group::available_default_groups()]).
 ///
 /// Sample usage:
 /// ```rust
@@ -121,11 +122,41 @@ pub use verify::SUPPORTED_SIG_ALGS;
 /// ```
 pub fn default_provider() -> CryptoProvider {
     CryptoProvider {
-        cipher_suites: ALL_CIPHER_SUITES.to_vec(),
-        kx_groups: kx_group::DEFAULT_KX_GROUPS.to_vec(),
-        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
+        cipher_suites: available_cipher_suites(),
+        kx_groups: kx_group::available_default_groups(),
+        signature_verification_algorithms: *verify::available_supported_sig_algs(),
         secure_random: &SecureRandom,
         key_provider: &KeyProvider,
+    }
+}
+
+/// Returns the cipher suites from [ALL_CIPHER_SUITES] that are available at runtime.
+pub fn available_cipher_suites() -> Vec<SupportedCipherSuite> {
+    ALL_CIPHER_SUITES
+        .iter()
+        .copied()
+        .filter(cipher_suite_available)
+        .collect()
+}
+
+fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
+    match cipher_suite.suite() {
+        rustls::CipherSuite::TLS13_AES_128_GCM_SHA256
+        | rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => {
+            aead::Algorithm::Aes128Gcm.is_available()
+        }
+        rustls::CipherSuite::TLS13_AES_256_GCM_SHA384
+        | rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => {
+            aead::Algorithm::Aes256Gcm.is_available()
+        }
+        rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
+        | rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => {
+            aead::Algorithm::ChaCha20Poly1305.is_available()
+        }
+        _ => true,
     }
 }
 
@@ -134,7 +165,8 @@ pub fn default_provider() -> CryptoProvider {
 /// The specified cipher suites and key exchange groups should be defined in descending order of preference.
 /// i.e the first elements have the highest priority during negotiation.
 ///
-/// If the `fips` feature is enabled then fips mode will be enabled for OpenSSL, and this function will panic if this fails.
+/// If OpenSSL is running in FIPS mode, non-approved algorithms may be filtered
+/// out by runtime availability checks.
 ///
 /// Sample usage:
 /// ```rust
@@ -170,7 +202,7 @@ pub fn custom_provider(
     CryptoProvider {
         cipher_suites,
         kx_groups,
-        signature_verification_algorithms: SUPPORTED_SIG_ALGS,
+        signature_verification_algorithms: *verify::available_supported_sig_algs(),
         secure_random: &SecureRandom,
         key_provider: &KeyProvider,
     }
@@ -187,24 +219,23 @@ pub fn custom_provider(
 /// * TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 /// * TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 ///
-/// If the non-default `fips` feature is enabled, or OpenSSL is compiled with the `OPENSSL_NO_CHACHA` option, then the ChaCha20-Poly1305 cipher suites will not be included.
+/// ChaCha20-Poly1305 suites are runtime-filtered by [available_cipher_suites()].
 /// If the default `tls12` feature is disabled then the TLS 1.2 cipher suites will not be included.
 pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     tls13::TLS13_AES_256_GCM_SHA384,
     tls13::TLS13_AES_128_GCM_SHA256,
-    #[cfg(all(chacha, not(feature = "fips")))]
     tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", chacha, not(feature = "fips")))]
+    #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", chacha, not(feature = "fips")))]
+    #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
@@ -227,19 +258,15 @@ pub mod fips {
     //!
     //! To use rustls with OpenSSL in FIPS mode, perform the following actions.
     //!
-    //! ## 1. Enable the `fips` feature
-    //!
-    //! This removes non-FIPS-approved cipher suites and key exchanges.
-    //!
-    //! ## 2. Specify `require_ems` when constructing [rustls::ClientConfig] or [rustls::ServerConfig]
+    //! ## 1. Specify `require_ems` when constructing [rustls::ClientConfig] or [rustls::ServerConfig]
     //!
     //! See [rustls documentation](https://docs.rs/rustls/latest/rustls/client/struct.ClientConfig.html#structfield.require_ems) for rationale.
     //!
-    //! ## 3. Enable FIPS mode for OpenSSL
+    //! ## 2. Enable FIPS mode for OpenSSL
     //!
     //! See [enable()].
     //!
-    //! ## 4. Validate the FIPS status of your ClientConfig or ServerConfig at runtime
+    //! ## 3. Validate the FIPS status of your ClientConfig or ServerConfig at runtime
     //! See [rustls documenation on FIPS](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html#3-validate-the-fips-status-of-your-clientconfigserverconfig-at-run-time).
 
     /// Returns `true` if OpenSSL is running in FIPS mode.
