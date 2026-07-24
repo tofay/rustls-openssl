@@ -26,14 +26,12 @@ vendored = ["openssl/vendored"]
 
 [dev-dependencies]
 hex = "0.4.3"
-rcgen = { version = "0.13.1", default-features = false, features = [
-    "aws_lc_rs",
-] }
-rstest = "0.25.0"
+rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs"] }
+rstest = "0.26.1"
 # Use aws_lc_rs to test our provider
 rustls = { version = "0.23.0", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 wycheproof = { version = "0.6.0", default-features = false, features = [
     "aead",
     "hkdf",
