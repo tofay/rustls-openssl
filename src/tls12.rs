@@ -103,7 +103,7 @@ pub static TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: SupportedCipherSuite =
         },
         kx: KeyExchangeAlgorithm::ECDHE,
         sign: ECDSA_SCHEMES,
-        aead_alg: &aead::Algorithm::Aes128Gcm,
+        aead_alg: &aead::Algorithm::Aes256Gcm,
         prf_provider: &Prf(SHA384),
     });
 
