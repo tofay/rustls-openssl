@@ -7,6 +7,7 @@ use rustls::crypto::cipher::NONCE_LEN;
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
+    #[cfg(chacha)]
     ChaCha20Poly1305,
 }
 
@@ -18,6 +19,7 @@ impl Algorithm {
         match self {
             Self::Aes128Gcm => Cipher::aes_128_gcm(),
             Self::Aes256Gcm => Cipher::aes_256_gcm(),
+            #[cfg(chacha)]
             Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
         }
     }
@@ -105,6 +107,7 @@ mod test {
             super::Algorithm::Aes128Gcm | super::Algorithm::Aes256Gcm => {
                 wycheproof::aead::TestName::AesGcm
             }
+            #[cfg(chacha)]
             super::Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
         };
         let test_set = wycheproof::aead::TestSet::load(test_name).unwrap();
@@ -193,6 +196,7 @@ mod test {
         assert!(super::Algorithm::Aes256Gcm.is_available());
     }
 
+    #[cfg(chacha)]
     #[test]
     fn test_chacha() {
         if !super::Algorithm::ChaCha20Poly1305.is_available() {

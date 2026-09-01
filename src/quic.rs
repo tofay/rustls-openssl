@@ -27,6 +27,7 @@ struct PacketKey {
 pub(crate) enum HeaderProtectionAlgorithm {
     Aes128,
     Aes256,
+    #[cfg(chacha)]
     ChaCha20,
 }
 
@@ -182,6 +183,7 @@ impl HeaderProtectionAlgorithm {
         match self {
             HeaderProtectionAlgorithm::Aes128 => Cipher::aes_128_ecb(),
             HeaderProtectionAlgorithm::Aes256 => Cipher::aes_256_ecb(),
+            #[cfg(chacha)]
             HeaderProtectionAlgorithm::ChaCha20 => Cipher::chacha20(),
         }
     }
@@ -198,6 +200,7 @@ impl HeaderProtectionKey {
                 mask.copy_from_slice(&block[..5]);
             }
             // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.4
+            #[cfg(chacha)]
             HeaderProtectionAlgorithm::ChaCha20 => {
                 let block = encrypt(
                     self.algo.openssl_cipher(),
@@ -215,6 +218,7 @@ impl HeaderProtectionKey {
 
 #[cfg(test)]
 mod test {
+    #[cfg(chacha)]
     use openssl::symm::encrypt;
     use rustls::{
         Side,
@@ -223,6 +227,7 @@ mod test {
 
     use super::super::tls13::TLS13_AES_128_GCM_SHA256_INTERNAL;
 
+    #[cfg(chacha)]
     fn chacha20_is_available() -> bool {
         let key = [0u8; 32];
         let iv = [0u8; 16];
@@ -295,6 +300,7 @@ mod test {
         assert_eq!(server_packet[..], expected_server_packet[..]);
     }
 
+    #[cfg(chacha)]
     #[test]
     fn test_short_packet_length() {
         if !chacha20_is_available() {
