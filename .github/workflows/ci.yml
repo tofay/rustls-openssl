@@ -92,7 +92,7 @@ jobs:
       - run: cargo clean
       - run: cargo test --no-run
       - run: |
-          LD_LIBRARY_PATH=$OPENSSL_DIR/lib64:$LD_LIBRARY_PATH \
+          LD_LIBRARY_PATH=$GITHUB_WORKSPACE/ci/openssl-no-chacha/lib64:$LD_LIBRARY_PATH \
           cargo test
 
   coverage:
