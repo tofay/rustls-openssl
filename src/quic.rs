@@ -1,5 +1,5 @@
-use crate::aead;
-use openssl::symm::{Cipher, encrypt};
+use crate::{aead, cipher::CipherKind};
+use openssl::{cipher::CipherRef, cipher_ctx::CipherCtx};
 use rustls::{
     Error,
     crypto::cipher::{AeadKey, Iv, Nonce},
@@ -27,7 +27,6 @@ struct PacketKey {
 pub(crate) enum HeaderProtectionAlgorithm {
     Aes128,
     Aes256,
-    #[cfg(chacha)]
     ChaCha20,
 }
 
@@ -179,66 +178,59 @@ impl quic::HeaderProtectionKey for HeaderProtectionKey {
 }
 
 impl HeaderProtectionAlgorithm {
-    fn openssl_cipher(self) -> Cipher {
-        match self {
-            HeaderProtectionAlgorithm::Aes128 => Cipher::aes_128_ecb(),
-            HeaderProtectionAlgorithm::Aes256 => Cipher::aes_256_ecb(),
-            #[cfg(chacha)]
-            HeaderProtectionAlgorithm::ChaCha20 => Cipher::chacha20(),
-        }
+    fn load(self) -> Result<&'static CipherRef, Error> {
+        let kind = match self {
+            HeaderProtectionAlgorithm::Aes128 => CipherKind::Aes128Ecb,
+            HeaderProtectionAlgorithm::Aes256 => CipherKind::Aes256Ecb,
+            HeaderProtectionAlgorithm::ChaCha20 => CipherKind::ChaCha20,
+        };
+        kind.load()
     }
 }
 
 impl HeaderProtectionKey {
     fn mask(&self, sample: &[u8]) -> Result<[u8; 5], Error> {
         let mut mask = [0; 5];
-        match self.algo {
-            // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.3
-            HeaderProtectionAlgorithm::Aes128 | HeaderProtectionAlgorithm::Aes256 => {
-                let block = encrypt(self.algo.openssl_cipher(), self.key.as_ref(), None, sample)
-                    .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
-                mask.copy_from_slice(&block[..5]);
-            }
-            // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.4
-            #[cfg(chacha)]
-            HeaderProtectionAlgorithm::ChaCha20 => {
-                let block = encrypt(
-                    self.algo.openssl_cipher(),
-                    self.key.as_ref(),
-                    Some(sample),
-                    &[0; 5],
-                )
-                .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
-                mask.copy_from_slice(&block[..5]);
-            }
-        }
+        let cipher = self.algo.load()?;
+        let block = CipherCtx::new()
+            .and_then(|mut ctx| {
+                match self.algo {
+                    // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.3
+                    HeaderProtectionAlgorithm::Aes128 | HeaderProtectionAlgorithm::Aes256 => {
+                        ctx.encrypt_init(Some(cipher), Some(self.key.as_ref()), None)?;
+                        let mut out = vec![0; sample.len() + cipher.block_size()];
+                        let count = ctx.cipher_update(sample, Some(&mut out))?;
+                        let rest = ctx.cipher_final(&mut out[count..])?;
+                        out.truncate(count + rest);
+                        Ok(out)
+                    }
+                    // https://datatracker.ietf.org/doc/html/rfc9001#section-5.4.4
+                    HeaderProtectionAlgorithm::ChaCha20 => {
+                        ctx.encrypt_init(Some(cipher), Some(self.key.as_ref()), Some(sample))?;
+                        let mut out = vec![0; sample.len() + cipher.block_size()];
+                        let count = ctx.cipher_update(&[0; 5], Some(&mut out))?;
+                        let rest = ctx.cipher_final(&mut out[count..])?;
+                        out.truncate(count + rest);
+                        Ok(out)
+                    }
+                }
+            })
+            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))?;
+        mask.copy_from_slice(&block[..5]);
         Ok(mask)
     }
 }
 
 #[cfg(test)]
 mod test {
-    #[cfg(chacha)]
-    use openssl::symm::encrypt;
     use rustls::{
         Side,
         quic::{Keys, Version},
     };
 
-    use super::super::tls13::TLS13_AES_128_GCM_SHA256_INTERNAL;
+    use crate::cipher::CipherKind;
 
-    #[cfg(chacha)]
-    fn chacha20_is_available() -> bool {
-        let key = [0u8; 32];
-        let iv = [0u8; 16];
-        encrypt(
-            super::HeaderProtectionAlgorithm::ChaCha20.openssl_cipher(),
-            &key,
-            Some(&iv),
-            &[0u8; 5],
-        )
-        .is_ok()
-    }
+    use super::super::tls13::TLS13_AES_128_GCM_SHA256_INTERNAL;
 
     // Taken from rustls: Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
     #[test]
@@ -300,10 +292,9 @@ mod test {
         assert_eq!(server_packet[..], expected_server_packet[..]);
     }
 
-    #[cfg(chacha)]
     #[test]
     fn test_short_packet_length() {
-        if !chacha20_is_available() {
+        if !CipherKind::ChaCha20Poly1305.is_available() {
             return;
         }
 
