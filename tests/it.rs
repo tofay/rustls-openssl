@@ -95,11 +95,14 @@ fn test_with_provider(
     server::Alg::PKCS_ECDSA_P256_SHA256,
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
-#[case::tls13_chacha20_poly1305_sha256(
-    rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
-    rustls_openssl::kx_group::SECP256R1,
-    server::Alg::PKCS_ECDSA_P256_SHA256,
-    CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
+#[cfg_attr(
+    chacha,
+    case::tls13_chacha20_poly1305_sha256(
+        rustls_openssl::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+        rustls_openssl::kx_group::SECP256R1,
+        server::Alg::PKCS_ECDSA_P256_SHA256,
+        CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
+    )
 )]
 #[cfg_attr(
     feature = "tls12",
@@ -135,7 +138,7 @@ fn test_with_provider(
     CipherSuite::TLS13_AES_256_GCM_SHA384
 )]
 #[cfg_attr(
-    feature = "tls12",
+    all(feature = "tls12", chacha),
     case::tls_ecdhe_rsa_with_chacha20_poly1305_sha256(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP256R1,
@@ -221,7 +224,7 @@ fn test_classical_completion() {
 
 #[rstest]
 #[cfg_attr(
-    feature = "tls12",
+    all(feature = "tls12", chacha),
     case(
         rustls_openssl::cipher_suite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         rustls_openssl::kx_group::SECP384R1,

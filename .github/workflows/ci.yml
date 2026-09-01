@@ -25,6 +25,7 @@ jobs:
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
         run: cargo test --doc --features vendored
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -56,21 +57,37 @@ jobs:
       - name: Run cargo test --features fips
         run: cargo test --tests --features fips -- --test-threads=1
 
-  # https://github.com/tofay/rustls-openssl/issues/31
-  # test-fips-openssl-3:
-  #   name: Test using FIPS openssl 3
-  #   runs-on: ubuntu-latest
-  #   container:
-  #     image: registry.access.redhat.com/ubi9/ubi:latest
-  #   steps:
-  #     - name: Install dependencies
-  #       run: dnf install -y gcc openssl-devel
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@v1
-  #       with:
-  #         toolchain: stable
-  #     - uses: Swatinem/rust-cache@v2
-  #     - run: cargo test --tests --features fips -- --test-threads=1
+  test-fips-openssl-3:
+    name: Test using FIPS openssl 3
+    runs-on: ubuntu-latest
+    container:
+      image: registry.access.redhat.com/ubi9/ubi:latest
+    steps:
+      - name: Install dependencies
+        run: dnf install -y gcc openssl-devel
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --tests --features fips -- --test-threads=1
+
+  test-no-chacha:
+    name: Test using OpenSSL without ChaCha
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build openssl
+        run: ./ci/build-openssl-no-chacha.sh
+      - name: cargo build
+        run: |
+          OPENSSL_DIR=$GITHUB_WORKSPACE/ci/openssl-no-chacha \
+          LD_LIBRARY_PATH=$OPENSSL_DIR/lib64:$LD_LIBRARY_PATH \
+          cargo test
 
   coverage:
     name: Coverage

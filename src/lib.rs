@@ -88,12 +88,15 @@ pub mod cipher_suite {
     #[cfg(feature = "tls12")]
     pub use super::tls12::{
         TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     };
-    pub use super::tls13::{
-        TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384, TLS13_CHACHA20_POLY1305_SHA256,
+    #[cfg(all(feature = "tls12", chacha))]
+    pub use super::tls12::{
+        TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     };
+    #[cfg(chacha)]
+    pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
+    pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
 
 pub use signer::KeyProvider;
@@ -153,11 +156,19 @@ fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
         }
         rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
         | rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
-        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => {
-            aead::Algorithm::ChaCha20Poly1305.is_available()
-        }
+        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => chacha_available(),
         _ => true,
     }
+}
+
+#[cfg(chacha)]
+fn chacha_available() -> bool {
+    aead::Algorithm::ChaCha20Poly1305.is_available()
+}
+
+#[cfg(not(chacha))]
+fn chacha_available() -> bool {
+    false
 }
 
 /// Create a [CryptoProvider] with specific cipher suites and key exchange groups
@@ -224,18 +235,19 @@ pub fn custom_provider(
 pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     tls13::TLS13_AES_256_GCM_SHA384,
     tls13::TLS13_AES_128_GCM_SHA256,
+    #[cfg(chacha)]
     tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(feature = "tls12")]
+    #[cfg(all(feature = "tls12", chacha))]
     tls12::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(feature = "tls12")]
+    #[cfg(all(feature = "tls12", chacha))]
     tls12::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 
