@@ -2,7 +2,7 @@ use openssl::{
     cipher::{Cipher, CipherRef},
     cipher_ctx::CipherCtx,
 };
-use rustls::{Error, crypto::cipher::NONCE_LEN};
+use rustls::Error;
 use std::sync::OnceLock;
 
 /// Every distinct OpenSSL cipher this crate loads
@@ -102,7 +102,7 @@ impl CipherKind {
         self.load()
             .map(|handle| {
                 let key = vec![0u8; handle.key_length()];
-                let nonce = [0u8; NONCE_LEN];
+                let nonce = vec![0u8; handle.iv_length()];
 
                 CipherCtx::new()
                     .and_then(|mut ctx| ctx.encrypt_init(Some(handle), Some(&key), Some(&nonce)))

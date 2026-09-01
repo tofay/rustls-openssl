@@ -6,10 +6,18 @@
 //!
 //! Supported cipher suites are listed below, in descending order of preference.
 //!
-//! The default provider includes all of these cipher suites, filtered based on runtime availability
-//! of the encryption algorithm, i.e when running against OpenSSL compiled without ChaCha20-Poly1305 support, the ChaCha20-Poly1305 cipher suites will be filtered out.
+//! The default provider includes all of these cipher suites, filtered by whether the encryption
+//! algorithm is actually available:
+//!
+//! - **OpenSSL 3.0+:** availability is checked at runtime, via the provider API (`EVP_CIPHER_fetch`),
+//!   against whatever providers are loaded in the OpenSSL library the binary is running against. This
+//!   is re-checked each time the provider is created, so the same compiled binary can offer different
+//!   cipher suites depending on the runtime OpenSSL configuration.
+//! - **Earlier than OpenSSL 3.0:** availability is fixed at compile time, based on the OpenSSL being compiled against.
+//!
 //! If the `tls12` feature is disabled, then the TLS 1.2 cipher suites will not be available.
-//! Use [available_cipher_suites()] to get the runtime-available set of these cipher suites.
+//! [ALL_CIPHER_SUITES] lists all supported cipher suites.
+//! Use [available_cipher_suites()] to get the set of cipher suites available at runtime.
 //!
 //! ### TLS 1.3
 //!
