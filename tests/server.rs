@@ -25,9 +25,14 @@ pub enum Alg {
 /// generating a certificate for `localhost` with the specified algorithm.
 ///
 /// The server will handle a single connection.
+/// Tests must call `join` on the returned thread handle to ensure the server has completed before exiting,
+/// otherwise OpenSSL cleanup may be called while the server thread is still running, which can cause a crash.
 ///
 /// Returns the port the server is listening on and the CA certificate used to sign the server certificate.
-pub fn start_server(alg: Alg, provider: Option<CryptoProvider>) -> (u16, CertificateDer<'static>) {
+pub fn start_server(
+    alg: Alg,
+    provider: Option<CryptoProvider>,
+) -> (u16, CertificateDer<'static>, std::thread::JoinHandle<()>) {
     #[cfg(feature = "fips")]
     {
         rustls_openssl::fips::enable();
@@ -39,34 +44,29 @@ pub fn start_server(alg: Alg, provider: Option<CryptoProvider>) -> (u16, Certifi
 
     let listener = std::net::TcpListener::bind("[::]:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         let mut stream = listener.incoming().next().unwrap().unwrap();
         let mut acceptor = Acceptor::default();
 
-        loop {
-            acceptor.read_tls(&mut stream).unwrap();
-            if let Some(accepted) = acceptor.accept().unwrap() {
-                let mut conn = accepted.into_connection(server_config.clone()).unwrap();
-                let msg = concat!(
-                    "HTTP/1.1 200 OK\r\n",
-                    "Connection: Closed\r\n",
-                    "Content-Type: text/html\r\n",
-                    "\r\n",
-                    "<h1>Hello World!</h1>\r\n"
-                )
-                .as_bytes();
+        acceptor.read_tls(&mut stream).unwrap();
+        if let Some(accepted) = acceptor.accept().unwrap() {
+            let mut conn = accepted.into_connection(server_config.clone()).unwrap();
+            let msg = concat!(
+                "HTTP/1.1 200 OK\r\n",
+                "Connection: Closed\r\n",
+                "Content-Type: text/html\r\n",
+                "\r\n",
+                "<h1>Hello World!</h1>\r\n"
+            )
+            .as_bytes();
 
-                conn.writer().write_all(msg).unwrap();
-                conn.write_tls(&mut stream).unwrap();
-                conn.complete_io(&mut stream).unwrap();
-
-                conn.send_close_notify();
-                conn.write_tls(&mut stream).unwrap();
-                conn.complete_io(&mut stream).unwrap();
-            }
+            conn.writer().write_all(msg).unwrap();
+            conn.send_close_notify();
+            conn.write_tls(&mut stream).unwrap();
+            conn.complete_io(&mut stream).unwrap();
         }
     });
-    (port, ca_cert_der)
+    (port, ca_cert_der, handle)
 }
 
 struct TestPki {
