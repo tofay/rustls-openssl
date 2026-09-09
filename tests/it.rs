@@ -51,13 +51,7 @@ fn test_with_provider(
     #[cfg(feature = "fips")]
     {
         config.require_ems = true;
-        // `CipherSuiteCommon::fips()` is defined as `hash_provider.fips()`, which this
-        // provider now reports as `false`: transcript hashing (src/hash.rs) and EC keygen
-        // (src/kx_group/ec.rs) still use OpenSSL's low-level APIs and so run outside the
-        // FIPS provider. Asserting the negative deliberately -- this line must fail, and be
-        // restored to `assert!(config.fips())`, as soon as those two paths move to EVP.
-        // See COMPLIANCE_REVIEW.md.
-        assert!(!config.fips());
+        assert!(config.fips());
     }
 
     let server_name = "localhost".try_into().unwrap();
@@ -280,9 +274,7 @@ fn test_to_internet(
     #[cfg(feature = "fips")]
     {
         config.require_ems = true;
-        // Reports `false` while transcript hashing and EC keygen bypass the FIPS provider.
-        // See COMPLIANCE_REVIEW.md.
-        assert!(!config.fips());
+        assert!(config.fips());
     }
 
     let server_name = "index.crates.io".try_into().unwrap();
@@ -483,9 +475,5 @@ fn sign_and_verify(
 fn provider_is_fips() {
     rustls_openssl::fips::enable();
     let provider = rustls_openssl::default_provider();
-    // Not yet: transcript hashing (src/hash.rs) and EC keygen (src/kx_group/ec.rs) still
-    // use OpenSSL's low-level APIs, which never reach the FIPS provider, so the provider
-    // reports not-approved even with OpenSSL in FIPS mode. Restore
-    // `assert!(provider.fips())` once both are ported to EVP. See COMPLIANCE_REVIEW.md.
-    assert!(!provider.fips());
+    assert!(provider.fips());
 }
