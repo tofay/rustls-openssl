@@ -64,7 +64,20 @@ impl rustls::crypto::hash::Hash for Algorithm {
     }
 
     fn fips(&self) -> bool {
-        crate::fips::enabled()
+        // Interim: report not-approved regardless of OpenSSL's FIPS state.
+        //
+        // `start()`/`hash()` above use `openssl::sha`, i.e. `SHA256_Init`/`SHA256_Update`/
+        // `SHA256_Final`, which are libcrypto's own implementations and are never dispatched
+        // to the FIPS provider. The transcript hash therefore runs outside the validated
+        // module boundary even when `crate::fips::enabled()` is true.
+        //
+        // Restore `crate::fips::enabled()` once this impl is ported to
+        // `openssl::hash::Hasher` (`EVP_DigestInit_ex`/`Update`/`Final_ex`), which is also
+        // `Clone` via `EVP_MD_CTX_copy_ex` so `Context::fork` keeps working. The required
+        // handle is already available via `Algorithm::message_digest()`. Note
+        // `openssl::md_ctx::MdCtx` is not a substitute: it has no copy support.
+        // See COMPLIANCE_REVIEW.md.
+        false
     }
 }
 

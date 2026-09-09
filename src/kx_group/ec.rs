@@ -58,7 +58,17 @@ impl SupportedKxGroup for EcKxGroup {
     }
 
     fn fips(&self) -> bool {
-        crate::fips::enabled()
+        // Interim: report not-approved regardless of OpenSSL's FIPS state.
+        //
+        // `start()` above uses `EcKey::generate`, i.e. `EC_KEY_generate_key`, which is
+        // libcrypto's own implementation. Key generation therefore happens outside the
+        // validated module boundary and skips the FIPS provider's SP 800-56A keygen path
+        // and its pairwise consistency test.
+        //
+        // Restore `crate::fips::enabled()` once keygen is ported to
+        // `EVP_PKEY_CTX_new_from_name` (see `kx_group/kem.rs` for the pattern).
+        // See COMPLIANCE_REVIEW.md.
+        false
     }
 }
 
