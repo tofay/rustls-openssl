@@ -1,7 +1,6 @@
 //! Provide Rustls `Hash` implementation using OpenSSL `MessageDigest`.
-use openssl::hash::MessageDigest;
+use openssl::hash::{Hasher, MessageDigest};
 use openssl::md::{Md, MdRef};
-use openssl::sha::{self, sha256, sha384};
 use rustls::crypto::hash::Output;
 
 pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
@@ -14,11 +13,13 @@ pub(crate) enum Algorithm {
     SHA384,
 }
 
-/// A Hash context
-#[derive(Clone)]
-enum Context {
-    Sha256(sha::Sha256),
-    Sha384(sha::Sha384),
+/// A Hash context using the EVP API.
+struct Context(Hasher);
+
+impl Clone for Context {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
 }
 
 impl Algorithm {
@@ -39,17 +40,16 @@ impl Algorithm {
 
 impl rustls::crypto::hash::Hash for Algorithm {
     fn start(&self) -> Box<dyn rustls::crypto::hash::Context> {
-        match &self {
-            Algorithm::SHA256 => Box::new(Context::Sha256(sha::Sha256::new())),
-            Algorithm::SHA384 => Box::new(Context::Sha384(sha::Sha384::new())),
-        }
+        Box::new(Context(
+            Hasher::new(self.message_digest()).expect("EVP_DigestInit_ex failed"),
+        ))
     }
 
     fn hash(&self, data: &[u8]) -> Output {
-        match &self {
-            Algorithm::SHA256 => Output::new(&sha256(data)[..]),
-            Algorithm::SHA384 => Output::new(&sha384(data)[..]),
-        }
+        let mut hasher = Hasher::new(self.message_digest()).expect("EVP_DigestInit_ex failed");
+        hasher.update(data).expect("EVP_DigestUpdate failed");
+        let digest = hasher.finish().expect("EVP_DigestFinal_ex failed");
+        Output::new(&digest[..])
     }
 
     fn output_len(&self) -> usize {
@@ -68,33 +68,23 @@ impl rustls::crypto::hash::Hash for Algorithm {
     }
 }
 
-impl Context {
-    fn finish_inner(self) -> Output {
-        match self {
-            Self::Sha256(context) => Output::new(&context.finish()[..]),
-            Self::Sha384(context) => Output::new(&context.finish()[..]),
-        }
-    }
-}
-
 impl rustls::crypto::hash::Context for Context {
     fn fork_finish(&self) -> Output {
-        let new_context = Box::new(self.clone());
-        new_context.finish_inner()
+        let mut forked = self.0.clone();
+        let digest = forked.finish().expect("EVP_DigestFinal_ex failed");
+        Output::new(&digest[..])
     }
 
     fn fork(&self) -> Box<dyn rustls::crypto::hash::Context> {
         Box::new(self.clone())
     }
 
-    fn finish(self: Box<Self>) -> Output {
-        self.finish_inner()
+    fn finish(mut self: Box<Self>) -> Output {
+        let digest = self.0.finish().expect("EVP_DigestFinal_ex failed");
+        Output::new(&digest[..])
     }
 
     fn update(&mut self, data: &[u8]) {
-        match self {
-            Self::Sha256(context) => context.update(data),
-            Self::Sha384(context) => context.update(data),
-        }
+        self.0.update(data).expect("EVP_DigestUpdate failed");
     }
 }
