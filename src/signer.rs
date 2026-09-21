@@ -2,7 +2,7 @@ use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
 use openssl::sign::RsaPssSaltlen;
-use rustls::pki_types::PrivateKeyDer;
+use rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer};
 use rustls::sign::SigningKey;
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
 use std::sync::Arc;
@@ -160,6 +160,24 @@ impl SigningKey for PKey {
             }
             _ => None,
         }
+    }
+
+    /// Return the RFC 5280 SubjectPublicKeyInfo for this key.
+    ///
+    /// The `SigningKey` trait opts out of this by default, returning `None`.
+    /// Leaving it at the default is not harmless: it makes
+    /// [`rustls::sign::CertifiedKey::keys_match`] fail with
+    /// `InconsistentKeys::Unknown` rather than succeed, because that check
+    /// starts by asking the key for its SPKI and gives up when none is
+    /// available. A caller that verifies its certificate and private key
+    /// agree before serving — a reasonable thing to do at startup — can
+    /// therefore load no certificate at all with this provider.
+    ///
+    /// OpenSSL already holds the public half, so producing the SPKI is a
+    /// direct call. Errors map to `None` to match the trait's "unavailable"
+    /// contract, which has no fallible variant.
+    fn public_key(&self) -> Option<SubjectPublicKeyInfoDer<'_>> {
+        self.0.public_key_to_der().ok().map(Into::into)
     }
 
     fn algorithm(&self) -> SignatureAlgorithm {
