@@ -1,4 +1,9 @@
 //! Integration tests
+//!
+//! Test fixtures only: these deprecated APIs are the simplest way to build a key to test
+//! *with*, and none of this ships. The ban exists for the library itself -- see
+//! clippy.toml.
+#![allow(clippy::disallowed_methods)]
 use crate::server::start_server;
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, EcKey, PointConversionForm};

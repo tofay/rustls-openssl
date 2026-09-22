@@ -37,8 +37,14 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check -l
+      # These also enforce clippy.toml's ban on rust-openssl APIs that wrap OpenSSL
+      # functions deprecated in 3.0, which bypass the provider layer and so never reach
+      # the FIPS module. See src/hash.rs's provider-routing test for why that matters.
       - run: cargo clippy --features vendored --all-targets -- -D warnings
       - run: cargo clippy --features vendored --no-default-features --all-targets -- -D warnings
+      # Catches the same functions declared as raw FFI, which clippy cannot see.
+      - name: No deprecated OpenSSL APIs
+        run: ./ci/check-deprecated-apis.sh
 
   test-fips-1-1-1:
     name: Test using FIPS openssl 1.1.1
