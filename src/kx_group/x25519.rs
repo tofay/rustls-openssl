@@ -66,6 +66,14 @@ mod test {
 
     #[test]
     fn x25519() {
+        // X25519 is not FIPS-approved for key agreement at any provider version, so with
+        // OpenSSL in FIPS mode it cannot be fetched at all. Skip rather than fail: the
+        // provider already drops this group from `available_groups()` for the same reason.
+        if PKey::generate_x25519().is_err() {
+            println!("skipping: OpenSSL cannot supply X25519 in this configuration");
+            return;
+        }
+
         let test_set = wycheproof::xdh::TestSet::load(wycheproof::xdh::TestName::X25519).unwrap();
         for test_group in &test_set.test_groups {
             for test in &test_group.tests {

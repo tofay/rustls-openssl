@@ -407,7 +407,13 @@ mod tests {
 
     #[test]
     fn ed25519_spki_matches_openssl() {
-        let key = PKey::generate_ed25519().unwrap();
+        // Ed25519 is FIPS-approved under FIPS 186-5, but modules validated before it --
+        // RHEL 9's 3.0.7 provider, for one -- do not implement it. Skip rather than fail
+        // when OpenSSL cannot supply it; `ed25519_available()` exists for the same reason.
+        let Ok(key) = PKey::generate_ed25519() else {
+            println!("skipping: OpenSSL cannot supply Ed25519 in this configuration");
+            return;
+        };
         let payload = key.raw_public_key().unwrap();
         assert_spki_matches_openssl(alg_id::ED25519, &payload, &key);
     }
