@@ -31,6 +31,20 @@ pub(crate) enum HeaderProtectionAlgorithm {
     ChaCha20,
 }
 
+impl HeaderProtectionAlgorithm {
+    /// Returns `true` when this header protection cipher is FIPS-approved.
+    ///
+    /// ChaCha20 is not approved at any FIPS provider version. AES-ECB is (SP 800-38A), so
+    /// it defers to OpenSSL.
+    fn fips(self) -> bool {
+        match self {
+            Self::Aes128 | Self::Aes256 => crate::fips::enabled(),
+            #[cfg(chacha)]
+            Self::ChaCha20 => false,
+        }
+    }
+}
+
 pub(crate) struct HeaderProtectionKey {
     algo: HeaderProtectionAlgorithm,
     key: AeadKey,
@@ -61,8 +75,11 @@ impl quic::Algorithm for KeyBuilder {
         self.packet_algo.key_size()
     }
 
+    /// Both the packet AEAD and the header protection cipher must be approved: rustls
+    /// folds this into `Tls13CipherSuite::fips()`, so reporting `true` here for a
+    /// ChaCha20 suite would make the whole suite claim FIPS.
     fn fips(&self) -> bool {
-        crate::fips::enabled()
+        self.packet_algo.fips() && self.header_algo.fips()
     }
 }
 

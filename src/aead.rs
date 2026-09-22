@@ -28,6 +28,22 @@ impl Algorithm {
         self.openssl_cipher().key_length()
     }
 
+    /// Returns `true` when this AEAD is backed by a FIPS-approved implementation.
+    ///
+    /// ChaCha20-Poly1305 is not approved at any FIPS provider version, so it reports
+    /// `false` whatever state OpenSSL is in. AES-GCM defers to OpenSSL.
+    ///
+    /// This lives on the algorithm rather than in each `fips()` impl because it is needed
+    /// by TLS 1.2, TLS 1.3 and QUIC alike; keeping three copies is what let the TLS 1.3
+    /// one drift.
+    pub(crate) fn fips(self) -> bool {
+        match self {
+            Self::Aes128Gcm | Self::Aes256Gcm => crate::fips::enabled(),
+            #[cfg(chacha)]
+            Self::ChaCha20Poly1305 => false,
+        }
+    }
+
     /// Returns `true` when OpenSSL can initialize this AEAD at runtime.
     pub(crate) fn is_available(self) -> bool {
         let key = vec![0u8; self.key_size()];

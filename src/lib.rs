@@ -334,3 +334,32 @@ pub mod fips {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// ChaCha20-Poly1305 is not FIPS-approved at any provider version, so it must report
+    /// `false` regardless of OpenSSL's state.
+    ///
+    /// Asserted on `aead::Algorithm` because that is the single implementation the TLS
+    /// 1.2, TLS 1.3 and QUIC `fips()` impls all delegate to. Keeping three copies of this
+    /// match is what previously let the TLS 1.3 one drift to an unconditional
+    /// `fips::enabled()`, making `TLS13_CHACHA20_POLY1305_SHA256` claim FIPS.
+    ///
+    /// Note this holds without OpenSSL being in FIPS mode; the FIPS-mode behaviour of the
+    /// suites is covered by `provider_is_fips` in tests/it.rs, which runs under the `fips`
+    /// feature.
+    #[cfg(chacha)]
+    #[test]
+    fn chacha_is_never_fips_approved() {
+        assert!(!crate::aead::Algorithm::ChaCha20Poly1305.fips());
+    }
+
+    /// AES-GCM must still track OpenSSL, so the check above cannot be satisfied by
+    /// reporting `false` everywhere.
+    #[test]
+    fn aes_gcm_tracks_openssl_fips_state() {
+        let expected = super::fips::enabled();
+        assert_eq!(crate::aead::Algorithm::Aes128Gcm.fips(), expected);
+        assert_eq!(crate::aead::Algorithm::Aes256Gcm.fips(), expected);
+    }
+}

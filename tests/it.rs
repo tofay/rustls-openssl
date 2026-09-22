@@ -481,4 +481,27 @@ fn provider_is_fips() {
     rustls_openssl::fips::enable();
     let provider = rustls_openssl::default_provider();
     assert!(provider.fips());
+
+    // With OpenSSL actually in FIPS mode, no suite may claim FIPS for an algorithm that is
+    // not approved. ChaCha20-Poly1305 never is, at any provider version.
+    //
+    // This is the case that a unit test cannot cover: outside FIPS mode a buggy
+    // `fips::enabled()` and a correct `false` are indistinguishable, so the regression is
+    // only visible here.
+    //
+    // `ALL_CIPHER_SUITES` rather than the runtime-filtered list on purpose -- in FIPS mode
+    // the ChaCha suites are filtered out of the defaults, but `custom_provider()` lets a
+    // caller select them anyway, and `CryptoProvider::fips()` would then attest to a
+    // provider that is not FIPS-approved.
+    for suite in rustls_openssl::ALL_CIPHER_SUITES {
+        let name = format!("{:?}", suite.suite());
+        if name.contains("CHACHA20") {
+            assert!(
+                !suite.fips(),
+                "{name} reports fips() == true, but ChaCha20-Poly1305 is not FIPS-approved"
+            );
+        } else {
+            assert!(suite.fips(), "{name} should report fips() in FIPS mode");
+        }
+    }
 }
