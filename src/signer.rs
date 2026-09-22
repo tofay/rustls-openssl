@@ -82,6 +82,48 @@ impl PKey {
             scheme,
         }
     }
+
+    /// The ECDSA signature scheme for this key's curve, or `None` if it is not a curve
+    /// this provider signs with.
+    ///
+    /// Read via `EVP_PKEY_get_utf8_string_param` rather than `EVP_PKEY_get1_EC_KEY`: the
+    /// latter is deprecated as of OpenSSL 3.0 and downgrades a provider-backed key to a
+    /// legacy one just to read its curve name.
+    #[cfg(ossl300)]
+    fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
+        use crate::openssl_internal::kem::PKeyRefExt;
+        const OSSL_PKEY_PARAM_GROUP_NAME: &[u8] = b"group\0";
+
+        let group = self
+            .0
+            .get_utf8_string_param(OSSL_PKEY_PARAM_GROUP_NAME)
+            .ok()?;
+
+        // OpenSSL reports the curve by its short name.
+        match group.as_str() {
+            "prime256v1" | "P-256" => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
+            "secp384r1" | "P-384" => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
+            "secp521r1" | "P-521" => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
+            _ => None,
+        }
+    }
+
+    /// As above, for OpenSSL before 3.0, which has no `OSSL_PARAM` accessors.
+    ///
+    /// This reads the curve out of the key rather than performing any cryptography, and
+    /// there is no provider layer to bypass on 1.1.1 in any case.
+    // `EVP_PKEY_get1_EC_KEY` is not deprecated on 1.1.1, and 1.1.1 has no provider layer
+    // to bypass. See clippy.toml.
+    #[allow(clippy::disallowed_methods)]
+    #[cfg(not(ossl300))]
+    fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
+        match self.0.ec_key().ok()?.group().curve_name()? {
+            openssl::nid::Nid::X9_62_PRIME256V1 => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
+            openssl::nid::Nid::SECP384R1 => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
+            openssl::nid::Nid::SECP521R1 => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
+            _ => None,
+        }
+    }
 }
 
 impl rustls::crypto::KeyProvider for KeyProvider {
@@ -129,34 +171,14 @@ impl SigningKey for PKey {
                 }
             }
             SignatureAlgorithm::ECDSA => {
-                // First determine our scheme
-                self.0
-                    .ec_key()
-                    .ok()
-                    .and_then(|ec_key| {
-                        let nid = ec_key.group().curve_name();
-                        let scheme = match nid {
-                            Some(openssl::nid::Nid::X9_62_PRIME256V1) => {
-                                SignatureScheme::ECDSA_NISTP256_SHA256
-                            }
-                            Some(openssl::nid::Nid::SECP384R1) => {
-                                SignatureScheme::ECDSA_NISTP384_SHA384
-                            }
-                            Some(openssl::nid::Nid::SECP521R1) => {
-                                SignatureScheme::ECDSA_NISTP521_SHA512
-                            }
-                            _ => return None,
-                        };
-                        Some(scheme)
-                    })
-                    // Now see if that was offered
-                    .and_then(|scheme| {
-                        if offered.contains(&scheme) {
-                            Some(Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>)
-                        } else {
-                            None
-                        }
-                    })
+                // First determine our scheme, then see if that was offered.
+                self.ecdsa_scheme().and_then(|scheme| {
+                    if offered.contains(&scheme) {
+                        Some(Box::new(self.signer(scheme)) as Box<dyn rustls::sign::Signer>)
+                    } else {
+                        None
+                    }
+                })
             }
             _ => None,
         }
