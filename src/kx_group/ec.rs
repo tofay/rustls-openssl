@@ -1,12 +1,14 @@
-use openssl::bn::BigNumContext;
 use openssl::derive::Deriver;
-use openssl::ec::{EcGroup, EcKey, EcPoint};
+use openssl::ec::EcGroup;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::{Id, PKey, Private, Public};
 use openssl::pkey_ctx::PkeyCtx;
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
+use rustls::pki_types::{AlgorithmIdentifier, alg_id};
 use rustls::{Error, NamedGroup};
+
+use crate::spki::subject_public_key_info;
 
 #[cfg(ossl300)]
 use crate::openssl_internal::kem::PKeyRefExt;
@@ -16,24 +18,28 @@ use crate::openssl_internal::kem::PKeyRefExt;
 struct EcKxGroup {
     name: NamedGroup,
     nid: Nid,
+    /// The `AlgorithmIdentifier` for this curve, used to import the peer's key.
+    alg_id: AlgorithmIdentifier,
 }
 
 struct EcKeyExchange {
     priv_key: PKey<Private>,
     name: NamedGroup,
-    group: EcGroup,
     pub_key: Vec<u8>,
+    alg_id: AlgorithmIdentifier,
 }
 
 /// secp256r1 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8)
 pub const SECP256R1: &dyn SupportedKxGroup = &EcKxGroup {
     name: NamedGroup::secp256r1,
     nid: Nid::X9_62_PRIME256V1,
+    alg_id: alg_id::ECDSA_P256,
 };
 /// secp384r1 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8)
 pub const SECP384R1: &dyn SupportedKxGroup = &EcKxGroup {
     name: NamedGroup::secp384r1,
     nid: Nid::SECP384R1,
+    alg_id: alg_id::ECDSA_P384,
 };
 
 /// Generate an ephemeral keypair on the curve `nid`, via `EVP_PKEY_keygen`.
@@ -60,8 +66,12 @@ fn encoded_public_key(key: &PKey<Private>, _group: &EcGroup) -> Result<Vec<u8>, 
 ///
 /// This reads the public point out of the key rather than performing any cryptography, and
 /// there is no provider layer to bypass on 1.1.1 in any case.
+// `EVP_PKEY_get1_EC_KEY` is not deprecated on 1.1.1, and 1.1.1 has no provider layer to
+// bypass. See clippy.toml.
+#[allow(clippy::disallowed_methods)]
 #[cfg(not(ossl300))]
 fn encoded_public_key(key: &PKey<Private>, group: &EcGroup) -> Result<Vec<u8>, ErrorStack> {
+    use openssl::bn::BigNumContext;
     use openssl::ec::PointConversionForm;
 
     let mut ctx = BigNumContext::new()?;
@@ -79,8 +89,8 @@ impl SupportedKxGroup for EcKxGroup {
                 Ok(Box::new(EcKeyExchange {
                     priv_key,
                     name: self.name,
-                    group,
                     pub_key,
+                    alg_id: self.alg_id,
                 }) as Box<dyn ActiveKeyExchange>)
             })
             .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
@@ -96,13 +106,20 @@ impl SupportedKxGroup for EcKxGroup {
 }
 
 impl EcKeyExchange {
-    fn load_peer_key(&self, peer_pub_key: &[u8]) -> Result<PKey<Public>, ErrorStack> {
-        let mut ctx = BigNumContext::new()?;
-        let point = EcPoint::from_bytes(&self.group, peer_pub_key, &mut ctx)?;
-        let peer_key = EcKey::from_public_key(&self.group, &point)?;
-        peer_key.check_key()?;
-        let peer_key: PKey<_> = peer_key.try_into()?;
-        Ok(peer_key)
+    /// Import the peer's key share, via `d2i_PUBKEY`.
+    ///
+    /// Import must go through EVP rather than `EC_POINT_oct2point` + `EC_KEY_set_public_key`:
+    /// only the EVP path is dispatched through OpenSSL's provider layer, so only it gets the
+    /// provider's own key import and validation -- including the FIPS provider's, when one is
+    /// in use. The decoder rejects points that are not on the curve, which is what the
+    /// `EC_KEY_check_key` call it replaces was for.
+    fn load_peer_key(&self, peer_pub_key: &[u8]) -> Result<PKey<Public>, Error> {
+        let spki = subject_public_key_info(self.alg_id, peer_pub_key).ok_or(
+            Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare),
+        )?;
+
+        PKey::public_key_from_der(&spki)
+            .map_err(|_| Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare))
     }
 }
 
@@ -115,14 +132,15 @@ impl ActiveKeyExchange for EcKeyExchange {
             ));
         }
 
-        self.load_peer_key(peer_pub_key)
-            .and_then(|peer_key| {
-                let mut deriver = Deriver::new(&self.priv_key)?;
-                deriver.set_peer(&peer_key)?;
-                let secret = deriver.derive_to_vec()?;
-                Ok(SharedSecret::from(secret.as_slice()))
-            })
-            .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
+        let peer_key = self.load_peer_key(peer_pub_key)?;
+
+        (|| -> Result<SharedSecret, ErrorStack> {
+            let mut deriver = Deriver::new(&self.priv_key)?;
+            deriver.set_peer(&peer_key)?;
+            let secret = deriver.derive_to_vec()?;
+            Ok(SharedSecret::from(secret.as_slice()))
+        })()
+        .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
     }
 
     fn pub_key(&self) -> &[u8] {
@@ -136,12 +154,18 @@ impl ActiveKeyExchange for EcKeyExchange {
 
 #[cfg(test)]
 mod test {
+    // Test fixtures only: these deprecated APIs are the simplest way to build a key to
+    // test *with*, and none of this ships. The ban exists for the library itself --
+    // see clippy.toml.
+    #![allow(clippy::disallowed_methods)]
+
     use openssl::{
         bn::BigNum,
         ec::{EcGroup, EcKey, EcPoint},
         nid::Nid,
         pkey::PKey,
     };
+    use rustls::pki_types::{AlgorithmIdentifier, alg_id};
     use rustls::{
         NamedGroup,
         crypto::{ActiveKeyExchange, SupportedKxGroup},
@@ -151,9 +175,24 @@ mod test {
     use super::EcKeyExchange;
 
     #[rstest::rstest]
-    #[case::secp256r1(TestName::EcdhSecp256r1, NamedGroup::secp256r1, Nid::X9_62_PRIME256V1)]
-    #[case::secp384r1(TestName::EcdhSecp384r1, NamedGroup::secp384r1, Nid::SECP384R1)]
-    fn test_ec_kx(#[case] test_name: TestName, #[case] rustls_group: NamedGroup, #[case] nid: Nid) {
+    #[case::secp256r1(
+        TestName::EcdhSecp256r1,
+        NamedGroup::secp256r1,
+        Nid::X9_62_PRIME256V1,
+        alg_id::ECDSA_P256
+    )]
+    #[case::secp384r1(
+        TestName::EcdhSecp384r1,
+        NamedGroup::secp384r1,
+        Nid::SECP384R1,
+        alg_id::ECDSA_P384
+    )]
+    fn test_ec_kx(
+        #[case] test_name: TestName,
+        #[case] rustls_group: NamedGroup,
+        #[case] nid: Nid,
+        #[case] alg_id: AlgorithmIdentifier,
+    ) {
         let test_set = wycheproof::ecdh::TestSet::load(test_name).unwrap();
         let mut ctx = openssl::bn::BigNumContext::new().unwrap();
 
@@ -172,8 +211,8 @@ mod test {
                     // rather than generation; import it directly.
                     priv_key: PKey::from_ec_key(ec_key).unwrap(),
                     name: rustls_group,
-                    group: EcGroup::from_curve_name(nid).unwrap(),
                     pub_key: Vec::new(),
+                    alg_id,
                 };
 
                 let res = Box::new(kx).complete(&test.public_key);
