@@ -41,6 +41,8 @@ pub(crate) trait PkeyExt: Sized {
 pub(crate) trait PKeyRefExt {
     /// Returns the octet string parameter for the specified key name.
     fn get_octet_string_param(&self, key_name: &[u8]) -> Result<Vec<u8>, ErrorStack>;
+    /// Returns the UTF-8 string parameter for the specified key name.
+    fn get_utf8_string_param(&self, key_name: &[u8]) -> Result<String, ErrorStack>;
 }
 
 impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
@@ -179,6 +181,25 @@ impl<T> PKeyRefExt for PKeyRef<T> {
         }
         Ok(out)
     }
+
+    fn get_utf8_string_param(&self, key_name: &[u8]) -> Result<String, ErrorStack> {
+        // Every parameter read this way (currently only the EC group name) is a short
+        // identifier; OpenSSL fails the call rather than truncating if it does not fit.
+        let mut buf = [0 as c_char; 80];
+        let mut out_len = 0;
+        unsafe {
+            cvt(EVP_PKEY_get_utf8_string_param(
+                self.as_ptr(),
+                key_name.as_ptr().cast(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut out_len,
+            ))?;
+        }
+
+        let bytes: Vec<u8> = buf[..out_len].iter().map(|&c| c as u8).collect();
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 unsafe extern "C" {
@@ -223,6 +244,15 @@ unsafe extern "C" {
         pkey: *const EVP_PKEY,
         key_name: *const c_char,
         buf: *mut c_uchar,
+        max_buf_sz: usize,
+        out_sz: *mut usize,
+    ) -> c_int;
+}
+unsafe extern "C" {
+    pub unsafe fn EVP_PKEY_get_utf8_string_param(
+        pkey: *const EVP_PKEY,
+        key_name: *const c_char,
+        str_: *mut c_char,
         max_buf_sz: usize,
         out_sz: *mut usize,
     ) -> c_int;
