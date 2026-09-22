@@ -78,6 +78,7 @@ mod openssl_internal;
 mod prf;
 mod quic;
 mod signer;
+mod spki;
 #[cfg(feature = "tls12")]
 mod tls12;
 mod tls13;

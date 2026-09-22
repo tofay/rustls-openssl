@@ -1,3 +1,4 @@
+use crate::spki::subject_public_key_info;
 use core::fmt;
 use once_cell::sync::Lazy;
 use openssl::{
@@ -222,59 +223,6 @@ impl fmt::Debug for OpenSslAlgorithm {
     }
 }
 
-/// Append a DER definite-length header for a `len`-byte value.
-fn push_len(out: &mut Vec<u8>, len: usize) -> Result<(), InvalidSignature> {
-    if len < 0x80 {
-        out.push(len as u8);
-    } else if len <= 0xff {
-        out.extend_from_slice(&[0x81, len as u8]);
-    } else if len <= 0xffff {
-        out.extend_from_slice(&[0x82, (len >> 8) as u8, len as u8]);
-    } else {
-        // No public key this crate accepts is anywhere near 64KiB.
-        return Err(InvalidSignature);
-    }
-    Ok(())
-}
-
-/// Wrap a raw public key in a `SubjectPublicKeyInfo`, so it can be imported with `d2i_PUBKEY`.
-///
-/// `d2i_PUBKEY` runs through OpenSSL's decoder framework and yields a provider-backed key,
-/// unlike `d2i_RSAPublicKey` and the `EC_KEY_*` setters it replaces here: those are
-/// implemented in libcrypto, are deprecated as of OpenSSL 3.0, and never reach the FIPS
-/// provider.
-///
-/// `alg_id` is the DER *contents* of the AlgorithmIdentifier SEQUENCE, which is the form
-/// `rustls::pki_types::alg_id` provides. `public_key` is the subjectPublicKey payload, which
-/// is what rustls passes to [`SignatureVerificationAlgorithm::verify_signature`].
-fn subject_public_key_info(
-    alg_id: AlgorithmIdentifier,
-    public_key: &[u8],
-) -> Result<Vec<u8>, InvalidSignature> {
-    let alg_id = alg_id.as_ref();
-
-    // AlgorithmIdentifier ::= SEQUENCE { .. }
-    let mut algorithm = Vec::with_capacity(alg_id.len() + 4);
-    algorithm.push(0x30);
-    push_len(&mut algorithm, alg_id.len())?;
-    algorithm.extend_from_slice(alg_id);
-
-    // subjectPublicKey ::= BIT STRING, with no unused bits.
-    let mut subject_public_key = Vec::with_capacity(public_key.len() + 5);
-    subject_public_key.push(0x03);
-    push_len(&mut subject_public_key, public_key.len() + 1)?;
-    subject_public_key.push(0x00);
-    subject_public_key.extend_from_slice(public_key);
-
-    // SubjectPublicKeyInfo ::= SEQUENCE { algorithm, subjectPublicKey }
-    let mut spki = Vec::with_capacity(algorithm.len() + subject_public_key.len() + 4);
-    spki.push(0x30);
-    push_len(&mut spki, algorithm.len() + subject_public_key.len())?;
-    spki.extend_from_slice(&algorithm);
-    spki.extend_from_slice(&subject_public_key);
-    Ok(spki)
-}
-
 impl OpenSslAlgorithm {
     fn public_key(&self, public_key: &[u8]) -> Result<PKey<Public>, InvalidSignature> {
         // Only import algorithms this provider actually verifies with; `d2i_PUBKEY` would
@@ -288,7 +236,8 @@ impl OpenSslAlgorithm {
             _ => return Err(InvalidSignature),
         }
 
-        let spki = subject_public_key_info(self.public_key_alg_id, public_key)?;
+        let spki =
+            subject_public_key_info(self.public_key_alg_id, public_key).ok_or(InvalidSignature)?;
         PKey::public_key_from_der(&spki).map_err(|_| InvalidSignature)
     }
 
@@ -406,6 +355,11 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
 
 #[cfg(test)]
 mod tests {
+    // Test fixtures only: these deprecated APIs are the simplest way to build a key to
+    // test *with*, and none of this ships. The ban exists for the library itself --
+    // see clippy.toml.
+    #![allow(clippy::disallowed_methods)]
+
     use super::*;
     use openssl::{
         bn::BigNumContext,
@@ -414,25 +368,6 @@ mod tests {
         pkey::Private,
         rsa::Rsa,
     };
-
-    #[test]
-    fn der_lengths_use_the_shortest_form() {
-        for (len, expected) in [
-            (0x00, &[0x00][..]),
-            (0x7f, &[0x7f][..]),
-            (0x80, &[0x81, 0x80][..]),
-            (0xff, &[0x81, 0xff][..]),
-            (0x100, &[0x82, 0x01, 0x00][..]),
-            (0xffff, &[0x82, 0xff, 0xff][..]),
-        ] {
-            let mut out = Vec::new();
-            push_len(&mut out, len).unwrap();
-            assert_eq!(out, expected, "wrong header for length {len:#x}");
-        }
-
-        let mut out = Vec::new();
-        assert!(push_len(&mut out, 0x1_0000).is_err());
-    }
 
     /// The SPKI we build must be exactly what OpenSSL itself would emit for the same key.
     fn assert_spki_matches_openssl(alg: AlgorithmIdentifier, payload: &[u8], key: &PKey<Private>) {
@@ -487,7 +422,7 @@ mod tests {
             signature_alg_id: alg_id::ECDSA_SHA256,
         };
 
-        // A well-formed secp256k1 key, which OpenSSL would otherwise import happily.
+        // A well-formed secp256k1 key.
         let group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
         let ec = EcKey::generate(&group).unwrap();
         let mut ctx = BigNumContext::new().unwrap();
@@ -495,14 +430,18 @@ mod tests {
             .public_key()
             .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
             .unwrap();
-        assert!(
-            PKey::public_key_from_der(
-                &subject_public_key_info(alg_id::ECDSA_P256K1, &payload).unwrap()
-            )
-            .is_ok()
-        );
 
+        // The allowlist must reject it regardless of what OpenSSL would do with it.
         assert!(secp256k1.public_key(&payload).is_err());
+
+        // The check above is only meaningful if OpenSSL would otherwise have accepted the
+        // key, so assert that too -- but a FIPS provider refuses secp256k1 outright, which
+        // makes the point moot rather than false. Don't fail the test over it.
+        let spki = subject_public_key_info(alg_id::ECDSA_P256K1, &payload).unwrap();
+        assert!(
+            PKey::public_key_from_der(&spki).is_ok() || crate::fips::enabled(),
+            "OpenSSL rejected secp256k1 outside FIPS mode; this test proves nothing here"
+        );
     }
 
     #[test]
