@@ -176,4 +176,97 @@ mod tests {
             hex::encode(SHA384.hash(b"abcdef").as_ref())
         );
     }
+
+    /// Markers exchanged with the child process below.
+    const CHILD_STARTED: &str = "provider-routing-child-started";
+    const CHILD_BYPASSED: &str = "provider-routing-child-BYPASSED-the-provider-layer";
+
+    /// Digests must be dispatched through OpenSSL's provider layer.
+    ///
+    /// This is the property that decides whether this provider can be used in FIPS mode: the
+    /// validated module *is* a provider, so a digest that never reaches the provider layer
+    /// never reaches the FIPS module -- while still returning a correct answer, and while
+    /// `fips()` still reports `true`. No functional test can catch that, because nothing
+    /// fails.
+    ///
+    /// So test it directly. A child process is run against an OpenSSL config that activates
+    /// only the `base` provider, which implements no cryptographic algorithms. Declaring a
+    /// provider section also suppresses auto-activation of the `default` provider, so in that
+    /// child *no provider can supply SHA-256*. A provider-routed digest must therefore fail.
+    /// One that succeeds computed in libcrypto, outside any provider, and would do the same
+    /// thing inside a FIPS deployment.
+    ///
+    /// Implemented as a subprocess because `OPENSSL_CONF` is read once, when OpenSSL
+    /// initialises.
+    #[cfg(ossl300)]
+    #[test]
+    fn digests_are_dispatched_through_the_provider_layer() {
+        use std::io::Write as _;
+
+        let conf_path = std::env::temp_dir().join(format!(
+            "rustls-openssl-base-only-{}.cnf",
+            std::process::id()
+        ));
+        let mut conf = std::fs::File::create(&conf_path).expect("failed to write OpenSSL config");
+        conf.write_all(
+            b"openssl_conf = openssl_init\n\
+              [openssl_init]\n\
+              providers = provider_sect\n\
+              [provider_sect]\n\
+              base = base_sect\n\
+              [base_sect]\n\
+              activate = 1\n",
+        )
+        .unwrap();
+        drop(conf);
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "hash::tests::digest_under_a_base_only_provider",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("OPENSSL_CONF", &conf_path)
+            .output()
+            .expect("failed to run child process");
+
+        let _ = std::fs::remove_file(&conf_path);
+
+        let out = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Guard against a vacuous pass: the child must actually have got as far as hashing.
+        assert!(
+            out.contains(CHILD_STARTED),
+            "child never reached the digest; this test proved nothing.\n{out}"
+        );
+
+        assert!(
+            !out.contains(CHILD_BYPASSED),
+            "SHA-256 was computed with only the `base` provider active, so it did not go \
+             through OpenSSL's provider layer at all. In a FIPS deployment this digest would \
+             be computed outside the validated module while `fips()` still reported true. \
+             Digests must use EVP_MD/EVP_MD_CTX, not the low-level SHA256_* functions.\n{out}"
+        );
+    }
+
+    /// The child half of [`digests_are_dispatched_through_the_provider_layer`]. Ignored so it
+    /// only ever runs when that test invokes it with the right `OPENSSL_CONF`.
+    #[cfg(ossl300)]
+    #[test]
+    #[ignore]
+    fn digest_under_a_base_only_provider() {
+        println!("{CHILD_STARTED}");
+
+        // Provider-routed: this must fail, and `Algorithm::hash` panics when it does.
+        let digest = SHA256.hash(b"abc");
+
+        // Reaching here at all is the failure; the value is printed only to make it obvious
+        // that a real digest came back.
+        println!("{CHILD_BYPASSED} {}", hex::encode(digest.as_ref()));
+    }
 }
