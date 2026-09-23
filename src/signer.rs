@@ -112,9 +112,6 @@ impl PKey {
     ///
     /// This reads the curve out of the key rather than performing any cryptography, and
     /// there is no provider layer to bypass on 1.1.1 in any case.
-    // `EVP_PKEY_get1_EC_KEY` is not deprecated on 1.1.1, and 1.1.1 has no provider layer
-    // to bypass. See clippy.toml.
-    #[allow(clippy::disallowed_methods)]
     #[cfg(not(ossl300))]
     fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
         match self.0.ec_key().ok()?.group().curve_name()? {

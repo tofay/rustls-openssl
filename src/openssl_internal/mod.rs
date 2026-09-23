@@ -1,6 +1,7 @@
 /// Contains OpenSSL bindings not in rust-openssl
 use openssl::error::ErrorStack;
 use openssl_sys::c_int;
+use std::ffi::{CString, c_char};
 
 #[cfg(ossl320)]
 mod hpke;
@@ -25,5 +26,24 @@ fn cvt_p<T>(r: *mut T) -> Result<*mut T, ErrorStack> {
         Err(ErrorStack::get())
     } else {
         Ok(r)
+    }
+}
+
+unsafe extern "C" {
+    pub fn EVP_set_default_properties(
+        libctx: *mut openssl_sys::OSSL_LIB_CTX,
+        propq: *const c_char,
+    ) -> c_int;
+}
+
+/// Sets global default properties.
+pub fn set_default_properties(properties: &str) -> Result<(), ErrorStack> {
+    let prop_c = CString::new(properties).map_err(|_| ErrorStack::get())?;
+    unsafe {
+        cvt(EVP_set_default_properties(
+            std::ptr::null_mut(),
+            prop_c.as_ptr(),
+        ))?;
+        Ok(())
     }
 }

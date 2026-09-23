@@ -76,9 +76,6 @@ fn encoded_public_key(key: &PKey<Private>, _group: &EcGroup) -> Result<Vec<u8>, 
 ///
 /// This reads the public point out of the key rather than performing any cryptography, and
 /// there is no provider layer to bypass on 1.1.1 in any case.
-// `EVP_PKEY_get1_EC_KEY` is not deprecated on 1.1.1, and 1.1.1 has no provider layer to
-// bypass. See clippy.toml.
-#[allow(clippy::disallowed_methods)]
 #[cfg(not(ossl300))]
 fn encoded_public_key(key: &PKey<Private>, group: &EcGroup) -> Result<Vec<u8>, ErrorStack> {
     use openssl::bn::BigNumContext;
@@ -164,17 +161,7 @@ impl ActiveKeyExchange for EcKeyExchange {
 
 #[cfg(test)]
 mod test {
-    // Test fixtures only: these deprecated APIs are the simplest way to build a key to
-    // test *with*, and none of this ships. The ban exists for the library itself --
-    // see clippy.toml.
-    #![allow(clippy::disallowed_methods)]
-
-    use openssl::{
-        bn::BigNum,
-        ec::{EcGroup, EcKey, EcPoint},
-        nid::Nid,
-        pkey::PKey,
-    };
+    use openssl::pkey::{PKey, Private};
     use rustls::pki_types::{AlgorithmIdentifier, alg_id};
     use rustls::{
         NamedGroup,
@@ -184,48 +171,63 @@ mod test {
 
     use super::EcKeyExchange;
 
+    fn push_der_len(out: &mut Vec<u8>, len: usize) {
+        if len < 0x80 {
+            out.push(len as u8);
+            return;
+        }
+
+        let bytes = len.to_be_bytes();
+        let first_nonzero = bytes.iter().position(|&byte| byte != 0).unwrap();
+        let significant = &bytes[first_nonzero..];
+        out.push(0x80 | significant.len() as u8);
+        out.extend_from_slice(significant);
+    }
+
+    fn push_der_value(out: &mut Vec<u8>, tag: u8, value: &[u8]) {
+        out.push(tag);
+        push_der_len(out, value.len());
+        out.extend_from_slice(value);
+    }
+
+    /// Import a test vector's private scalar through OpenSSL's modern decoder.
+    fn private_key_from_scalar(alg_id: &AlgorithmIdentifier, scalar: &[u8]) -> PKey<Private> {
+        // RFC 5915 ECPrivateKey. Its publicKey field is optional; OpenSSL reconstructs the
+        // public point from the scalar while importing the key.
+        let mut ec_private_key_contents = Vec::new();
+        push_der_value(&mut ec_private_key_contents, 0x02, &[1]);
+        push_der_value(&mut ec_private_key_contents, 0x04, scalar);
+        let mut ec_private_key = Vec::with_capacity(ec_private_key_contents.len() + 2);
+        push_der_value(&mut ec_private_key, 0x30, &ec_private_key_contents);
+
+        // RFC 5208 PrivateKeyInfo. The provider-backed decoder imports this form without
+        // relying on the legacy, key-specific EC private-key decoder.
+        let mut pkcs8 = Vec::new();
+        push_der_value(&mut pkcs8, 0x02, &[0]);
+        push_der_value(&mut pkcs8, 0x30, alg_id.as_ref());
+        push_der_value(&mut pkcs8, 0x04, &ec_private_key);
+        let mut der = Vec::with_capacity(pkcs8.len() + 4);
+        push_der_value(&mut der, 0x30, &pkcs8);
+        PKey::private_key_from_pkcs8(&der).unwrap()
+    }
+
     #[rstest::rstest]
-    #[case::secp256r1(
-        TestName::EcdhSecp256r1,
-        NamedGroup::secp256r1,
-        Nid::X9_62_PRIME256V1,
-        alg_id::ECDSA_P256
-    )]
-    #[case::secp384r1(
-        TestName::EcdhSecp384r1,
-        NamedGroup::secp384r1,
-        Nid::SECP384R1,
-        alg_id::ECDSA_P384
-    )]
-    #[case::secp521r1(
-        TestName::EcdhSecp521r1,
-        NamedGroup::secp521r1,
-        Nid::SECP521R1,
-        alg_id::ECDSA_P521
-    )]
+    #[case::secp256r1(TestName::EcdhSecp256r1, NamedGroup::secp256r1, alg_id::ECDSA_P256)]
+    #[case::secp384r1(TestName::EcdhSecp384r1, NamedGroup::secp384r1, alg_id::ECDSA_P384)]
+    #[case::secp521r1(TestName::EcdhSecp521r1, NamedGroup::secp521r1, alg_id::ECDSA_P521)]
     fn test_ec_kx(
         #[case] test_name: TestName,
         #[case] rustls_group: NamedGroup,
-        #[case] nid: Nid,
         #[case] alg_id: AlgorithmIdentifier,
     ) {
         let test_set = wycheproof::ecdh::TestSet::load(test_name).unwrap();
-        let mut ctx = openssl::bn::BigNumContext::new().unwrap();
 
         for test_group in &test_set.test_groups {
             for test in &test_group.tests {
-                let group = EcGroup::from_curve_name(nid).unwrap();
-                let private_num = BigNum::from_slice(&test.private_key).unwrap();
-                let mut point = EcPoint::new(&group).unwrap();
-                point
-                    .mul_generator2(&group, &private_num, &mut ctx)
-                    .unwrap();
-                let ec_key = EcKey::from_private_components(&group, &private_num, &point).unwrap();
-
                 let kx = EcKeyExchange {
                     // These vectors pin a specific private key, so they exercise `complete()`
                     // rather than generation; import it directly.
-                    priv_key: PKey::from_ec_key(ec_key).unwrap(),
+                    priv_key: private_key_from_scalar(&alg_id, &test.private_key),
                     name: rustls_group,
                     pub_key: Vec::new(),
                     alg_id,
