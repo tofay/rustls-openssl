@@ -6,10 +6,18 @@
 //!
 //! Supported cipher suites are listed below, in descending order of preference.
 //!
-//! The default provider includes all of these cipher suites, filtered based on runtime availability
-//! of the encryption algorithm, i.e when running against OpenSSL compiled without ChaCha20-Poly1305 support, the ChaCha20-Poly1305 cipher suites will be filtered out.
+//! The default provider includes all of these cipher suites, filtered by whether the encryption
+//! algorithm is actually available:
+//!
+//! - **OpenSSL 3.0+:** availability is checked at runtime, via the provider API (`EVP_CIPHER_fetch`),
+//!   against whatever providers are loaded in the OpenSSL library the binary is running against. This
+//!   is re-checked each time the provider is created, so the same compiled binary can offer different
+//!   cipher suites depending on the runtime OpenSSL configuration.
+//! - **Earlier than OpenSSL 3.0:** availability is fixed at compile time, based on the OpenSSL being compiled against.
+//!
 //! If the `tls12` feature is disabled, then the TLS 1.2 cipher suites will not be available.
-//! Use [available_cipher_suites()] to get the runtime-available set of these cipher suites.
+//! [ALL_CIPHER_SUITES] lists all supported cipher suites.
+//! Use [available_cipher_suites()] to get the set of cipher suites available at runtime.
 //!
 //! ### TLS 1.3
 //!
@@ -69,6 +77,7 @@ use rustls::SupportedCipherSuite;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 
 mod aead;
+mod cipher;
 mod hash;
 mod hkdf;
 mod hmac;
@@ -94,7 +103,6 @@ pub mod cipher_suite {
     pub use super::tls12::{
         TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     };
-    #[cfg(chacha)]
     pub use super::tls13::TLS13_CHACHA20_POLY1305_SHA256;
     pub use super::tls13::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384};
 }
@@ -156,19 +164,11 @@ fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
         }
         rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
         | rustls::CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
-        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => chacha_available(),
+        | rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 => {
+            aead::Algorithm::ChaCha20Poly1305.is_available()
+        }
         _ => true,
     }
-}
-
-#[cfg(chacha)]
-fn chacha_available() -> bool {
-    aead::Algorithm::ChaCha20Poly1305.is_available()
-}
-
-#[cfg(not(chacha))]
-fn chacha_available() -> bool {
-    false
 }
 
 /// Create a [CryptoProvider] with specific cipher suites and key exchange groups
@@ -235,19 +235,18 @@ pub fn custom_provider(
 pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
     tls13::TLS13_AES_256_GCM_SHA384,
     tls13::TLS13_AES_128_GCM_SHA256,
-    #[cfg(chacha)]
     tls13::TLS13_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", chacha))]
+    #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    #[cfg(all(feature = "tls12", chacha))]
+    #[cfg(feature = "tls12")]
     tls12::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 ];
 

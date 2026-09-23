@@ -24,7 +24,6 @@ static ECDSA_SCHEMES: &[SignatureScheme] = &[
 ];
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`.
-#[cfg(chacha)]
 pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -39,7 +38,6 @@ pub static TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     });
 
 /// The TLS1.2 ciphersuite `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
-#[cfg(chacha)]
 pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
     SupportedCipherSuite::Tls12(&Tls12CipherSuite {
         common: CipherSuiteCommon {
@@ -121,7 +119,6 @@ struct AesGcmEncrypter {
     full_iv: Iv,
 }
 
-#[cfg(chacha)]
 pub(crate) struct ChaCha20Poly1305Crypter {
     key: AeadKey,
     iv: Iv,
@@ -140,7 +137,6 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     full_iv: Iv::new(full_iv),
                 })
             }
-            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => Box::new(ChaCha20Poly1305Crypter {
                 key,
                 iv: Iv::copy(iv),
@@ -160,7 +156,6 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     implicit_iv,
                 })
             }
-            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => Box::new(ChaCha20Poly1305Crypter {
                 key,
                 iv: Iv::copy(iv),
@@ -175,7 +170,6 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                 fixed_iv_len: GCM_IMPLICIT_NONCE_LENGTH,
                 explicit_nonce_len: GCM_EXPLICIT_NONCE_LENGTH,
             },
-            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => KeyBlockShape {
                 enc_key_len: self.key_size(),
                 fixed_iv_len: NONCE_LEN,
@@ -209,7 +203,6 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
                     iv: Iv::new(gcm_iv),
                 })
             }
-            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => Ok(ConnectionTrafficSecrets::Chacha20Poly1305 {
                 key,
                 iv: Iv::new(iv[..].try_into().map_err(|_| UnsupportedOperationError)?),
@@ -220,7 +213,6 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
     fn fips(&self) -> bool {
         match self {
             aead::Algorithm::Aes128Gcm | aead::Algorithm::Aes256Gcm => crate::fips::enabled(),
-            #[cfg(chacha)]
             aead::Algorithm::ChaCha20Poly1305 => false,
         }
     }
@@ -297,7 +289,6 @@ impl MessageDecrypter for AesGcmDecrypter {
     }
 }
 
-#[cfg(chacha)]
 impl MessageEncrypter for ChaCha20Poly1305Crypter {
     fn encrypt(
         &mut self,
@@ -326,7 +317,6 @@ impl MessageEncrypter for ChaCha20Poly1305Crypter {
     }
 }
 
-#[cfg(chacha)]
 impl MessageDecrypter for ChaCha20Poly1305Crypter {
     fn decrypt<'a>(
         &mut self,
