@@ -305,10 +305,14 @@ pub mod fips {
 
     /// Enable FIPS mode for OpenSSL.
     ///
-    /// This should be called on application startup before the provider is used.
+    /// This function is a convenience helper to programmatically enforce FIPS mode
+    /// on OpenSSL 3.x. Calling this is optional if OpenSSL is already configured
+    /// for FIPS externally (e.g., via `openssl.cnf`, system environment variables,
+    /// or system-wide cryptographic policies).
     ///
+    /// On OpenSSL 3.x, this loads the `fips`, and `base` providers, and sets default
+    /// properties to strictly require `fips=yes`.
     /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
-    /// On OpenSSL 3 this loads a FIPS provider, which must be available.
     ///
     /// Panics if FIPS cannot be enabled
     #[cfg(not(fips_module))]
@@ -317,18 +321,25 @@ pub mod fips {
         use once_cell::sync::OnceCell;
 
         use crate::openssl_internal;
-        static PROVIDER: OnceCell<openssl::provider::Provider> = OnceCell::new();
-        PROVIDER.get_or_init(|| {
-            let provider = openssl::provider::Provider::load(None, "fips")
-                .expect("Failed to load FIPS provider.");
-            unsafe {
-                openssl_internal::cvt(openssl_sys::EVP_default_properties_enable_fips(
-                    std::ptr::null_mut(),
-                    1,
-                ))
-                .expect("Failed to enable FIPS properties.");
-            }
-            provider
+        static LOADED: OnceCell<bool> = OnceCell::new();
+        LOADED.get_or_init(|| {
+            openssl::provider::Provider::load(None, "fips").expect("Failed to load FIPS provider.");
+            openssl::provider::Provider::load(None, "base").expect("Failed to load Base provider.");
+            openssl_internal::set_default_properties("fips=yes")
+                .expect("Failed to set 'fips=yes'.");
+            true
         });
+    }
+}
+
+// Allows running tests with FIPS enabled.
+#[cfg(all(test, feature = "fips"))]
+mod fips_test_init {
+    use crate::fips;
+    use ctor::ctor;
+
+    #[ctor(unsafe)]
+    fn global_fips_setup() {
+        fips::enable();
     }
 }

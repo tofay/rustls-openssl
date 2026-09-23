@@ -70,7 +70,10 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --tests --features fips -- --test-threads=1
+      - name: Ensure AES test fails when FIPS module is not enabled
+        run: |
+          ! cargo test aes_available --features fips
+      - run: OPENSSL_FORCE_FIPS_MODE=1 cargo test --features fips -- --test-threads=1
 
   test-no-chacha:
     name: Test using OpenSSL without ChaCha
@@ -82,17 +85,34 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Build openssl
-        run: ./ci/build-openssl-no-chacha.sh
+        run: ./ci/build-openssl-custom.sh
       - name: cargo test
         run: |
-          OPENSSL_DIR=$GITHUB_WORKSPACE/ci/openssl-no-chacha \
+          OPENSSL_DIR=$GITHUB_WORKSPACE/ci/openssl-custom \
           LD_LIBRARY_PATH=$OPENSSL_DIR/lib64:$LD_LIBRARY_PATH \
           cargo test
       # Now test building against system OpenSSL, but running against the no-ChaCha OpenSSL
       - run: cargo clean
       - run: cargo test --no-run
       - run: |
-          LD_LIBRARY_PATH=$GITHUB_WORKSPACE/ci/openssl-no-chacha/lib64:$LD_LIBRARY_PATH \
+          LD_LIBRARY_PATH=$GITHUB_WORKSPACE/ci/openssl-custom/lib64:$LD_LIBRARY_PATH \
+          cargo test
+
+  test-openssl-provider:
+    name: Test using only OpenSSL provider API is used
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build openssl
+        run: OPENSSL_CONFIG_FLAGS="no-deprecated" ./ci/build-openssl-custom.sh
+      - name: cargo test
+        run: |
+          OPENSSL_DIR=$GITHUB_WORKSPACE/ci/openssl-custom \
+          LD_LIBRARY_PATH=$OPENSSL_DIR/lib64:$LD_LIBRARY_PATH \
           cargo test
 
   coverage:

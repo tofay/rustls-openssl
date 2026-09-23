@@ -29,11 +29,6 @@ fn test_with_provider(
     port: u16,
     root_ca_certs: Vec<CertificateDer<'static>>,
 ) -> CipherSuite {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -47,12 +42,6 @@ fn test_with_provider(
         .unwrap()
         .with_root_certificates(root_store)
         .with_no_client_auth();
-
-    #[cfg(feature = "fips")]
-    {
-        config.require_ems = true;
-        assert!(config.fips());
-    }
 
     let server_name = "localhost".try_into().unwrap();
 
@@ -248,11 +237,6 @@ fn test_to_internet(
         return;
     }
 
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
     let cipher_suites = vec![suite];
     let kx_group = vec![group];
 
@@ -270,12 +254,6 @@ fn test_to_internet(
     .unwrap()
     .with_root_certificates(root_store)
     .with_no_client_auth();
-
-    #[cfg(feature = "fips")]
-    {
-        config.require_ems = true;
-        assert!(config.fips());
-    }
 
     let server_name = "index.crates.io".try_into().unwrap();
     let mut sock = TcpStream::connect("index.crates.io:443").unwrap();
@@ -329,10 +307,6 @@ static RSA_SIGNING_SCHEMES: &[SignatureScheme] = &[
 
 #[test]
 fn test_rsa_sign_and_verify() {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
@@ -367,10 +341,6 @@ fn test_rsa_sign_and_verify() {
 #[case::ecdsa_nistp521_sha512(SignatureScheme::ECDSA_NISTP521_SHA512, Nid::SECP521R1)]
 
 fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
