@@ -2,7 +2,7 @@
 use rustls::crypto::SupportedKxGroup;
 
 mod ec;
-pub use ec::{SECP256R1, SECP384R1};
+pub use ec::{SECP256R1, SECP384R1, SECP521R1};
 
 mod x25519;
 pub use x25519::X25519;
@@ -47,6 +47,7 @@ pub static DEFAULT_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
 /// * [X25519]
 /// * [SECP384R1]
 /// * [SECP256R1]
+/// * [SECP521R1]
 /// * [MLKEM768] (OpenSSL 3.5+)
 ///
 /// If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will
@@ -59,6 +60,7 @@ pub static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     SECP384R1,
     #[cfg(all(ossl300, not(feature = "prefer-post-quantum")))]
     X25519MLKEM768,
+    SECP521R1,
     #[cfg(ossl300)]
     MLKEM768,
 ];

@@ -41,6 +41,16 @@ pub const SECP384R1: &dyn SupportedKxGroup = &EcKxGroup {
     nid: Nid::SECP384R1,
     alg_id: alg_id::ECDSA_P384,
 };
+/// secp521r1 key exchange group as registered with [IANA](https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8)
+///
+/// Not offered by default: P-521 is considerably slower than P-256 or P-384 and is rarely
+/// negotiated, so adding it to the default offer would change every handshake. Select it
+/// explicitly via [`crate::custom_provider()`] to use it.
+pub const SECP521R1: &dyn SupportedKxGroup = &EcKxGroup {
+    name: NamedGroup::secp521r1,
+    nid: Nid::SECP521R1,
+    alg_id: alg_id::ECDSA_P521,
+};
 
 /// Generate an ephemeral keypair on the curve `nid`, via `EVP_PKEY_keygen`.
 ///
@@ -187,6 +197,12 @@ mod test {
         Nid::SECP384R1,
         alg_id::ECDSA_P384
     )]
+    #[case::secp521r1(
+        TestName::EcdhSecp521r1,
+        NamedGroup::secp521r1,
+        Nid::SECP521R1,
+        alg_id::ECDSA_P521
+    )]
     fn test_ec_kx(
         #[case] test_name: TestName,
         #[case] rustls_group: NamedGroup,
@@ -241,6 +257,7 @@ mod test {
     #[rstest::rstest]
     #[case::secp256r1(crate::kx_group::SECP256R1, 65)]
     #[case::secp384r1(crate::kx_group::SECP384R1, 97)]
+    #[case::secp521r1(crate::kx_group::SECP521R1, 133)]
     fn generated_keys_agree(
         #[case] group: &'static dyn SupportedKxGroup,
         #[case] pub_key_len: usize,
