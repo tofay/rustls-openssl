@@ -35,9 +35,10 @@
 //! * SECP256R1
 //! * X25519
 //! * MLKEM768
+//! * MLKEM1024
 //!
 //! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
-//! MLKEM768 and SECP521R1 are not offered by default, but can be used by specifying them in the `custom_provider()` function.
+//! MLKEM768, MLKEM1024 and SECP521R1 are not offered by default, but can be used by specifying them in the `custom_provider()` function.
 //!
 //! The default provider includes all of these key exchange groups, filtered based on runtime availability of the algorithm.
 //! Use [kx_group::available_default_groups()] to get the runtime-available set of default key exchange groups,
