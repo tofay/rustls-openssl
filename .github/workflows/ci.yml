@@ -105,7 +105,7 @@ jobs:
           cargo test
 
   test-openssl-provider:
-    name: Test using only OpenSSL provider API is used
+    name: Test OpenSSL no-deprecated
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

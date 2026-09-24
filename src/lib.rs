@@ -414,12 +414,14 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "fips")]
+    use ctor::ctor;
+
     // Allows running tests with FIPS enabled.
     #[cfg(feature = "fips")]
     #[ctor(unsafe)]
     fn global_fips_setup() {
         use crate::fips;
-        use ctor::ctor;
         fips::enable();
     }
 }
