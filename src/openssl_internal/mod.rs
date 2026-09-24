@@ -29,6 +29,7 @@ fn cvt_p<T>(r: *mut T) -> Result<*mut T, ErrorStack> {
     }
 }
 
+#[cfg(ossl300)]
 unsafe extern "C" {
     pub fn EVP_set_default_properties(
         libctx: *mut openssl_sys::OSSL_LIB_CTX,
@@ -37,6 +38,7 @@ unsafe extern "C" {
 }
 
 /// Sets global default properties.
+#[cfg(ossl300)]
 pub fn set_default_properties(properties: &str) -> Result<(), ErrorStack> {
     let prop_c = CString::new(properties).map_err(|_| ErrorStack::get())?;
     unsafe {
