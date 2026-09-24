@@ -361,4 +361,49 @@ mod tests {
         assert_eq!(crate::aead::Algorithm::Aes128Gcm.fips(), expected);
         assert_eq!(crate::aead::Algorithm::Aes256Gcm.fips(), expected);
     }
+
+    /// Each AEAD `fips()` impl, called directly.
+    ///
+    /// Not reachable through `SupportedCipherSuite::fips()` outside FIPS mode: rustls
+    /// aggregates with `&&` -- `Tls13CipherSuite::fips()` is
+    /// `common && hkdf && aead_alg && quic` -- and `common.fips()` is
+    /// `crate::fips::enabled()`, so the chain short-circuits on the first term and never
+    /// evaluates these. Without a direct call the reporting this crate exists to fix has
+    /// no coverage in the default configuration.
+    #[test]
+    fn aead_trait_impls_report_fips_directly() {
+        use rustls::crypto::cipher::{Tls12AeadAlgorithm, Tls13AeadAlgorithm};
+
+        let fips = super::fips::enabled();
+        for alg in [
+            crate::aead::Algorithm::Aes128Gcm,
+            crate::aead::Algorithm::Aes256Gcm,
+        ] {
+            assert_eq!(Tls12AeadAlgorithm::fips(&alg), fips, "tls12 {alg:?}");
+            assert_eq!(Tls13AeadAlgorithm::fips(&alg), fips, "tls13 {alg:?}");
+        }
+
+        let chacha = crate::aead::Algorithm::ChaCha20Poly1305;
+        assert!(!Tls12AeadAlgorithm::fips(&chacha));
+        assert!(!Tls13AeadAlgorithm::fips(&chacha));
+    }
+
+    /// Every suite's `fips()` must agree with the one rule: approved exactly when OpenSSL
+    /// is in FIPS mode and the suite is not ChaCha20-Poly1305.
+    ///
+    /// This is the user-visible invariant, and it holds in both states. It does not on its
+    /// own cover the constituent impls -- see above.
+    #[test]
+    fn every_suite_reports_fips_consistently() {
+        let fips = super::fips::enabled();
+        for suite in super::ALL_CIPHER_SUITES {
+            let name = format!("{:?}", suite.suite());
+            let expected = fips && !name.contains("CHACHA20");
+            assert_eq!(
+                suite.fips(),
+                expected,
+                "{name}: fips() should be {expected} (OpenSSL FIPS mode: {fips})"
+            );
+        }
+    }
 }

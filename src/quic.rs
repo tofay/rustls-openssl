@@ -240,6 +240,39 @@ impl HeaderProtectionKey {
 
 #[cfg(test)]
 mod test {
+    /// `KeyBuilder::fips()` is `packet_algo.fips() && header_algo.fips()`, and `&&`
+    /// short-circuits: outside FIPS mode the packet AEAD already reports `false`, so the
+    /// header-protection arm is never evaluated through that path. Exercise it directly.
+    ///
+    /// ChaCha20 is not FIPS-approved at any provider version, so it reports `false`
+    /// whatever state OpenSSL is in. AES-ECB is approved (SP 800-38A) and defers to
+    /// OpenSSL, so the invariant holds in both states.
+    #[test]
+    fn header_protection_fips_reporting() {
+        use super::HeaderProtectionAlgorithm as H;
+
+        let fips = crate::fips::enabled();
+        assert_eq!(H::Aes128.fips(), fips);
+        assert_eq!(H::Aes256.fips(), fips);
+        assert!(!H::ChaCha20.fips());
+    }
+
+    /// `KeyBuilder::fips()`, called directly for the same reason: reaching it through
+    /// `SupportedCipherSuite::fips()` requires FIPS mode, because rustls short-circuits on
+    /// `common.fips()` first.
+    #[test]
+    fn quic_key_builder_reports_fips_directly() {
+        // No trait import needed: `quic` is already a `&dyn quic::Algorithm`.
+        let fips = crate::fips::enabled();
+        let aes = TLS13_AES_128_GCM_SHA256_INTERNAL.quic.unwrap();
+        assert_eq!(aes.fips(), fips);
+
+        let chacha = super::super::tls13::TLS13_CHACHA20_POLY1305_SHA256_INTERNAL
+            .quic
+            .unwrap();
+        assert!(!chacha.fips());
+    }
+
     use rustls::{
         Side,
         quic::{HeaderProtectionKey, Keys, Version},
