@@ -1,4 +1,4 @@
-use openssl::cipher::{Cipher, CipherRef};
+use crate::cipher::CipherKind;
 use openssl::cipher_ctx::CipherCtx;
 use rustls::Error;
 use rustls::crypto::cipher::NONCE_LEN;
@@ -7,7 +7,6 @@ use rustls::crypto::cipher::NONCE_LEN;
 pub(crate) enum Algorithm {
     Aes128Gcm,
     Aes256Gcm,
-    #[cfg(chacha)]
     ChaCha20Poly1305,
 }
 
@@ -15,17 +14,16 @@ pub(crate) enum Algorithm {
 pub(crate) const TAG_LEN: usize = 16;
 
 impl Algorithm {
-    fn openssl_cipher(self) -> &'static CipherRef {
+    fn cipher_kind(self) -> CipherKind {
         match self {
-            Self::Aes128Gcm => Cipher::aes_128_gcm(),
-            Self::Aes256Gcm => Cipher::aes_256_gcm(),
-            #[cfg(chacha)]
-            Self::ChaCha20Poly1305 => Cipher::chacha20_poly1305(),
+            Self::Aes128Gcm => CipherKind::Aes128Gcm,
+            Self::Aes256Gcm => CipherKind::Aes256Gcm,
+            Self::ChaCha20Poly1305 => CipherKind::ChaCha20Poly1305,
         }
     }
 
-    pub(crate) fn key_size(self) -> usize {
-        self.openssl_cipher().key_length()
+    pub(crate) fn is_available(self) -> bool {
+        self.cipher_kind().is_available()
     }
 
     /// Returns `true` when this AEAD is backed by a FIPS-approved implementation.
@@ -36,24 +34,21 @@ impl Algorithm {
     /// This lives on the algorithm rather than in each `fips()` impl because it is needed
     /// by TLS 1.2, TLS 1.3 and QUIC alike; keeping three copies is what let the TLS 1.3
     /// one drift.
+    ///
+    /// No `#[cfg(chacha)]` on the ChaCha arm: since #40 the variant is unconditional and
+    /// availability is decided at runtime, so gating the arm would leave the match
+    /// non-exhaustive on a no-ChaCha build.
     pub(crate) fn fips(self) -> bool {
         match self {
             Self::Aes128Gcm | Self::Aes256Gcm => crate::fips::enabled(),
-            #[cfg(chacha)]
             Self::ChaCha20Poly1305 => false,
         }
     }
 
-    /// Returns `true` when OpenSSL can initialize this AEAD at runtime.
-    pub(crate) fn is_available(self) -> bool {
-        let key = vec![0u8; self.key_size()];
-        let nonce = [0u8; NONCE_LEN];
-
-        CipherCtx::new()
-            .and_then(|mut ctx| {
-                ctx.encrypt_init(Some(self.openssl_cipher()), Some(&key), Some(&nonce))
-            })
-            .is_ok()
+    pub(crate) fn key_size(self) -> usize {
+        self.cipher_kind()
+            .load()
+            .map_or(0, |handle| handle.key_length())
     }
 
     /// Encrypts data in place and returns the tag.
@@ -64,9 +59,10 @@ impl Algorithm {
         aad: &[u8],
         data: &mut [u8],
     ) -> Result<[u8; TAG_LEN], Error> {
+        let cipher = self.cipher_kind().load()?;
         CipherCtx::new()
             .and_then(|mut ctx| {
-                ctx.encrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
+                ctx.encrypt_init(Some(cipher), Some(key), Some(nonce))?;
                 // Providing no output buffer implies input is AAD.
                 ctx.cipher_update(aad, None)?;
                 // The ciphers are all stream ciphers, so we shound encrypt the same amount of data...
@@ -92,6 +88,8 @@ impl Algorithm {
         aad: &[u8],
         data: &mut [u8],
     ) -> Result<usize, Error> {
+        let cipher = self.cipher_kind().load()?;
+
         let payload_len = data.len();
         if payload_len < TAG_LEN {
             return Err(Error::DecryptError);
@@ -101,7 +99,7 @@ impl Algorithm {
 
         CipherCtx::new()
             .and_then(|mut ctx| {
-                ctx.decrypt_init(Some(self.openssl_cipher()), Some(key), Some(nonce))?;
+                ctx.decrypt_init(Some(cipher), Some(key), Some(nonce))?;
                 ctx.cipher_update(aad, None)?;
                 ctx.set_tag(tag)?;
                 let count = ctx.cipher_update_inplace(ciphertext, ciphertext.len())?;
@@ -116,15 +114,21 @@ impl Algorithm {
 
 #[cfg(test)]
 mod test {
+    use super::Algorithm;
     use wycheproof::{TestResult, aead::TestFlag};
 
-    fn test_aead(alg: super::Algorithm) {
+    #[rstest::rstest]
+    #[case(Algorithm::Aes128Gcm)]
+    #[case(Algorithm::Aes256Gcm)]
+    #[case(Algorithm::ChaCha20Poly1305)]
+    fn test_aead(#[case] alg: Algorithm) {
+        if !alg.is_available() {
+            return;
+        }
+
         let test_name = match alg {
-            super::Algorithm::Aes128Gcm | super::Algorithm::Aes256Gcm => {
-                wycheproof::aead::TestName::AesGcm
-            }
-            #[cfg(chacha)]
-            super::Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
+            Algorithm::Aes128Gcm | Algorithm::Aes256Gcm => wycheproof::aead::TestName::AesGcm,
+            Algorithm::ChaCha20Poly1305 => wycheproof::aead::TestName::ChaCha20Poly1305,
         };
         let test_set = wycheproof::aead::TestSet::load(test_name).unwrap();
 
@@ -197,27 +201,8 @@ mod test {
     }
 
     #[test]
-    fn test_aes_128() {
-        test_aead(super::Algorithm::Aes128Gcm);
-    }
-
-    #[test]
-    fn test_aes_256() {
-        test_aead(super::Algorithm::Aes256Gcm);
-    }
-
-    #[test]
     fn test_aes_available() {
-        assert!(super::Algorithm::Aes128Gcm.is_available());
-        assert!(super::Algorithm::Aes256Gcm.is_available());
-    }
-
-    #[cfg(chacha)]
-    #[test]
-    fn test_chacha() {
-        if !super::Algorithm::ChaCha20Poly1305.is_available() {
-            return;
-        }
-        test_aead(super::Algorithm::ChaCha20Poly1305);
+        assert!(Algorithm::Aes128Gcm.is_available());
+        assert!(Algorithm::Aes256Gcm.is_available());
     }
 }
