@@ -372,18 +372,24 @@ mod tests {
     /// no coverage in the default configuration.
     #[test]
     fn aead_trait_impls_report_fips_directly() {
-        use rustls::crypto::cipher::{Tls12AeadAlgorithm, Tls13AeadAlgorithm};
+        // `Tls12AeadAlgorithm` is implemented in `mod tls12`, which is behind the `tls12`
+        // feature, so the TLS 1.2 half of this test has to be gated the same way.
+        #[cfg(feature = "tls12")]
+        use rustls::crypto::cipher::Tls12AeadAlgorithm;
+        use rustls::crypto::cipher::Tls13AeadAlgorithm;
 
         let fips = super::fips::enabled();
         for alg in [
             crate::aead::Algorithm::Aes128Gcm,
             crate::aead::Algorithm::Aes256Gcm,
         ] {
+            #[cfg(feature = "tls12")]
             assert_eq!(Tls12AeadAlgorithm::fips(&alg), fips, "tls12 {alg:?}");
             assert_eq!(Tls13AeadAlgorithm::fips(&alg), fips, "tls13 {alg:?}");
         }
 
         let chacha = crate::aead::Algorithm::ChaCha20Poly1305;
+        #[cfg(feature = "tls12")]
         assert!(!Tls12AeadAlgorithm::fips(&chacha));
         assert!(!Tls13AeadAlgorithm::fips(&chacha));
     }
