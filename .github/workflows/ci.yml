@@ -117,6 +117,7 @@ jobs:
         run: OPENSSL_CONFIG_FLAGS="no-deprecated" ./ci/build-openssl-custom.sh
       - name: Use rust-openssl fork that compiles with no-deprecated
         run: |
+          cargo rm openssl-sys openssl
           cargo add openssl-sys --git https://github.com/tofay/rust-openssl --branch no-deprecated-openssl-crate
           cargo add openssl --git https://github.com/tofay/rust-openssl --branch no-deprecated-openssl-crate
       - name: cargo test
