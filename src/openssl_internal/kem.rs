@@ -165,8 +165,7 @@ impl<T> PKeyRefExt for PKeyRef<T> {
                 ptr::null_mut(),
                 0,
                 &mut out_len,
-            ))
-            .unwrap();
+            ))?;
         }
 
         let mut out = vec![0; out_len];
