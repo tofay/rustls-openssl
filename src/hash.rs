@@ -183,6 +183,8 @@ mod tests {
     const CHILD_STARTED: &str = "provider-routing-child-started";
     #[cfg(ossl300)]
     const CHILD_BYPASSED: &str = "provider-routing-child-BYPASSED-the-provider-layer";
+    #[cfg(ossl300)]
+    const CHILD_PREMISE_BROKEN: &str = "provider-routing-child-PREMISE-BROKEN";
 
     /// Digests must be dispatched through OpenSSL's provider layer.
     ///
@@ -198,6 +200,13 @@ mod tests {
     /// child *no provider can supply SHA-256*. A provider-routed digest must therefore fail.
     /// One that succeeds computed in libcrypto, outside any provider, and would do the same
     /// thing inside a FIPS deployment.
+    ///
+    /// The child checks that premise before drawing any conclusion. On a RHEL-family host
+    /// with the kernel FIPS flag set, libcrypto activates the FIPS provider whatever the
+    /// config says, so SHA-256 *is* available to a provider-routed fetch and a successful
+    /// digest proves nothing. Rather than fail wrongly there, the child reports the negative
+    /// control as void and this test skips -- see the Rocky Linux 10.2 result in
+    /// `ci/fips-vm-report.sh` output, where it first showed up as a false failure.
     ///
     /// Implemented as a subprocess because `OPENSSL_CONF` is read once, when OpenSSL
     /// initialises.
@@ -248,6 +257,15 @@ mod tests {
             "child never reached the digest; this test proved nothing.\n{out}"
         );
 
+        // A provider supplied SHA-256 despite the config, so there is nothing to conclude.
+        if out.contains(CHILD_PREMISE_BROKEN) {
+            eprintln!(
+                "skipping: this host activates a crypto provider regardless of OPENSSL_CONF, \
+                 so the base-only negative control does not hold here.\n{out}"
+            );
+            return;
+        }
+
         assert!(
             !out.contains(CHILD_BYPASSED),
             "SHA-256 was computed with only the `base` provider active, so it did not go \
@@ -264,6 +282,18 @@ mod tests {
     #[ignore]
     fn digest_under_a_base_only_provider() {
         println!("{CHILD_STARTED}");
+
+        // Verify the negative control: with only `base` active, no provider can supply
+        // SHA-256, so this fetch must fail. If it succeeds, something outside the config
+        // activated a provider and a successful digest below would prove nothing.
+        if let Ok(md) = openssl::md::Md::fetch(None, "SHA256", None) {
+            println!(
+                "{CHILD_PREMISE_BROKEN} EVP_MD_fetch(SHA256) succeeded ({} bytes), so a \
+                 provider is active despite the base-only config",
+                md.size()
+            );
+            return;
+        }
 
         // Provider-routed: this must fail, and `Algorithm::hash` panics when it does.
         let digest = SHA256.hash(b"abc");
