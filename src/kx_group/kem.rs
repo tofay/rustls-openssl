@@ -15,6 +15,16 @@ pub const MLKEM768: &dyn SupportedKxGroup = &KxGroup {
     algorithm_name: b"mlkem768\0",
 };
 
+/// This is the [MLKEM] key exchange at ML-KEM-1024 strength.
+///
+/// Requires OpenSSL 3.5 or later; filtered out at runtime otherwise, as MLKEM768 is.
+///
+/// [MLKEM]: https://datatracker.ietf.org/doc/draft-connolly-tls-mlkem-key-agreement
+pub const MLKEM1024: &dyn SupportedKxGroup = &KxGroup {
+    named_group: NamedGroup::MLKEM1024,
+    algorithm_name: b"mlkem1024\0",
+};
+
 /// This is the [X25519MLKEM768] key exchange.
 ///
 /// [X25519MLKEM768]: <https://datatracker.ietf.org/doc/draft-kwiatkowski-tls-ecdhe-mlkem/>
@@ -200,5 +210,48 @@ impl ActiveKeyExchange for X25519HybridKeyExchange {
                 Ok(SharedSecret::from(secret.as_slice()))
             })
             .map_err(|e| Error::General(format!("OpenSSL error: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rustls::crypto::SupportedKxGroup;
+
+    /// Client and server must agree on the encapsulated secret.
+    ///
+    /// `start()` is the client side (generate a decapsulation key, send the public key);
+    /// `start_and_complete()` is the server side (encapsulate against it). Neither KEM
+    /// group had any unit coverage before this.
+    ///
+    /// Skipped when OpenSSL cannot supply the algorithm: ML-KEM arrived in OpenSSL 3.5, and
+    /// these groups are compiled in for 3.0+ and filtered at runtime by
+    /// [`crate::kx_group::available_groups()`].
+    #[rstest::rstest]
+    #[case::mlkem768(crate::kx_group::MLKEM768)]
+    #[case::mlkem1024(crate::kx_group::MLKEM1024)]
+    #[case::x25519mlkem768(crate::kx_group::X25519MLKEM768)]
+    fn encapsulation_round_trip(#[case] group: &'static dyn SupportedKxGroup) {
+        let Ok(client) = group.start() else {
+            println!("skipping {:?}: not available in this OpenSSL", group.name());
+            return;
+        };
+
+        let client_share = client.pub_key().to_vec();
+        let server = group
+            .start_and_complete(&client_share)
+            .expect("server-side encapsulation failed");
+        assert_eq!(server.group, group.name());
+
+        let client_secret = client
+            .complete(&server.pub_key)
+            .expect("client-side decapsulation failed");
+
+        assert_eq!(
+            client_secret.secret_bytes(),
+            server.secret.secret_bytes(),
+            "{:?}: client and server derived different secrets",
+            group.name()
+        );
+        assert!(!client_secret.secret_bytes().is_empty());
     }
 }

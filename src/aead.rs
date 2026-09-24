@@ -26,6 +26,25 @@ impl Algorithm {
         self.cipher_kind().is_available()
     }
 
+    /// Returns `true` when this AEAD is backed by a FIPS-approved implementation.
+    ///
+    /// ChaCha20-Poly1305 is not approved at any FIPS provider version, so it reports
+    /// `false` whatever state OpenSSL is in. AES-GCM defers to OpenSSL.
+    ///
+    /// This lives on the algorithm rather than in each `fips()` impl because it is needed
+    /// by TLS 1.2, TLS 1.3 and QUIC alike; keeping three copies is what let the TLS 1.3
+    /// one drift.
+    ///
+    /// No `#[cfg(chacha)]` on the ChaCha arm: since #40 the variant is unconditional and
+    /// availability is decided at runtime, so gating the arm would leave the match
+    /// non-exhaustive on a no-ChaCha build.
+    pub(crate) fn fips(self) -> bool {
+        match self {
+            Self::Aes128Gcm | Self::Aes256Gcm => crate::fips::enabled(),
+            Self::ChaCha20Poly1305 => false,
+        }
+    }
+
     pub(crate) fn key_size(self) -> usize {
         self.cipher_kind()
             .load()

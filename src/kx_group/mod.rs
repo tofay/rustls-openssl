@@ -2,7 +2,7 @@
 use rustls::crypto::SupportedKxGroup;
 
 mod ec;
-pub use ec::{SECP256R1, SECP384R1};
+pub use ec::{SECP256R1, SECP384R1, SECP521R1};
 
 mod x25519;
 pub use x25519::X25519;
@@ -10,7 +10,7 @@ pub use x25519::X25519;
 #[cfg(ossl300)]
 mod kem;
 #[cfg(ossl300)]
-pub use kem::{MLKEM768, X25519MLKEM768};
+pub use kem::{MLKEM768, MLKEM1024, X25519MLKEM768};
 
 /// Key exchanges enabled by default by this provider.
 ///
@@ -47,7 +47,9 @@ pub static DEFAULT_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
 /// * [X25519]
 /// * [SECP384R1]
 /// * [SECP256R1]
+/// * [SECP521R1]
 /// * [MLKEM768] (OpenSSL 3.5+)
+/// * [MLKEM1024] (OpenSSL 3.5+)
 ///
 /// If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will
 /// be the first group offered, otherwise it will be the last.
@@ -59,8 +61,11 @@ pub static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] = &[
     SECP384R1,
     #[cfg(all(ossl300, not(feature = "prefer-post-quantum")))]
     X25519MLKEM768,
+    SECP521R1,
     #[cfg(ossl300)]
     MLKEM768,
+    #[cfg(ossl300)]
+    MLKEM1024,
 ];
 
 /// Returns the algorithms from [DEFAULT_KX_GROUPS] that are available at runtime.

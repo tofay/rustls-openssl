@@ -1,0 +1,47 @@
+# rust-openssl APIs that call OpenSSL functions deprecated in OpenSSL 3.0.
+#
+# These are banned because a deprecated low-level function is implemented inside libcrypto
+# and is never dispatched through OpenSSL's provider layer. The FIPS module *is* a provider,
+# so such a call computes outside the validated module while still returning an answer -- and
+# while `fips()` still reports true. Nothing fails, so no functional test catches it. See
+# `hash::tests::digests_are_dispatched_through_the_provider_layer`, which pins the property
+# for digests.
+#
+# Two kinds of use are legitimate and carry an `#[allow]` with a reason:
+#   * `#[cfg(not(ossl300))]` fallbacks -- OpenSSL 1.1.1 has no provider layer to bypass, and
+#     these functions are not deprecated there.
+#   * test code building fixtures, which is not shipped.
+#
+# Prefer: EVP_MD/EVP_MD_CTX for digests, EVP_PKEY_keygen for key generation, and d2i_PUBKEY
+# (via `crate::spki::subject_public_key_info` + `PKey::public_key_from_der`) for public key
+# import.
+
+disallowed-methods = [
+    # --- digests: SHA256_Init/Update/Final and friends ---
+    { path = "openssl::sha::sha256", reason = "SHA256() bypasses the provider layer; use openssl::hash::hash with a MessageDigest" },
+    { path = "openssl::sha::sha384", reason = "SHA384() bypasses the provider layer; use openssl::hash::hash with a MessageDigest" },
+    { path = "openssl::sha::sha512", reason = "SHA512() bypasses the provider layer; use openssl::hash::hash with a MessageDigest" },
+    { path = "openssl::sha::sha1", reason = "SHA1() bypasses the provider layer; use openssl::hash::hash with a MessageDigest" },
+
+    # --- EC: EC_KEY_* ---
+    { path = "openssl::ec::EcKey::generate", reason = "EC_KEY_generate_key bypasses the provider layer; use EVP_PKEY_keygen (see kx_group::ec::generate)" },
+    { path = "openssl::ec::EcKey::from_public_key", reason = "EC_KEY_set_public_key bypasses the provider layer; import via crate::spki + PKey::public_key_from_der" },
+    { path = "openssl::ec::EcKey::from_private_components", reason = "EC_KEY_set_private_key is deprecated in OpenSSL 3.0" },
+    { path = "openssl::ec::EcKeyRef::check_key", reason = "EC_KEY_check_key is deprecated in OpenSSL 3.0; the EVP decoder validates on import" },
+
+    # --- RSA: RSA_* ---
+    { path = "openssl::rsa::Rsa::generate", reason = "RSA_generate_key_ex bypasses the provider layer; use EVP_PKEY_keygen" },
+    { path = "openssl::rsa::Rsa::public_key_from_der_pkcs1", reason = "d2i_RSAPublicKey is deprecated in OpenSSL 3.0; import via crate::spki + PKey::public_key_from_der" },
+
+    # --- legacy key bridging: EVP_PKEY_assign_* / EVP_PKEY_get1_* ---
+    { path = "openssl::pkey::PKey::from_ec_key", reason = "EVP_PKEY_assign_EC_KEY produces a legacy-backed key; build the key with EVP instead" },
+    { path = "openssl::pkey::PKey::from_rsa", reason = "EVP_PKEY_assign_RSA produces a legacy-backed key; build the key with EVP instead" },
+    { path = "openssl::pkey::PKeyRef::ec_key", reason = "EVP_PKEY_get1_EC_KEY is deprecated in OpenSSL 3.0 and downgrades a provider-backed key; read OSSL_PARAMs instead" },
+    { path = "openssl::pkey::PKeyRef::rsa", reason = "EVP_PKEY_get1_RSA is deprecated in OpenSSL 3.0 and downgrades a provider-backed key; read OSSL_PARAMs instead" },
+]
+
+disallowed-types = [
+    { path = "openssl::sha::Sha256", reason = "SHA256_Init/Update/Final bypass the provider layer; use openssl::hash::Hasher" },
+    { path = "openssl::sha::Sha384", reason = "SHA384_Init/Update/Final bypass the provider layer; use openssl::hash::Hasher" },
+    { path = "openssl::sha::Sha512", reason = "SHA512_Init/Update/Final bypass the provider layer; use openssl::hash::Hasher" },
+]

@@ -43,9 +43,10 @@
 //! * SECP256R1
 //! * X25519
 //! * MLKEM768
+//! * MLKEM1024
 //!
 //! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
-//! MLKEM768 is not offered by default, but can be used by specifying it in the `custom_provider()` function.
+//! MLKEM768, MLKEM1024 and SECP521R1 are not offered by default, but can be used by specifying them in the `custom_provider()` function.
 //!
 //! The default provider includes all of these key exchange groups, filtered based on runtime availability of the algorithm.
 //! Use [kx_group::available_default_groups()] to get the runtime-available set of default key exchange groups,
@@ -87,6 +88,7 @@ mod openssl_internal;
 mod prf;
 mod quic;
 mod signer;
+mod spki;
 #[cfg(feature = "tls12")]
 mod tls12;
 mod tls13;
@@ -330,5 +332,84 @@ pub mod fips {
             }
             provider
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// ChaCha20-Poly1305 is not FIPS-approved at any provider version, so it must report
+    /// `false` regardless of OpenSSL's state.
+    ///
+    /// Asserted on `aead::Algorithm` because that is the single implementation the TLS
+    /// 1.2, TLS 1.3 and QUIC `fips()` impls all delegate to. Keeping three copies of this
+    /// match is what previously let the TLS 1.3 one drift to an unconditional
+    /// `fips::enabled()`, making `TLS13_CHACHA20_POLY1305_SHA256` claim FIPS.
+    ///
+    /// Note this holds without OpenSSL being in FIPS mode; the FIPS-mode behaviour of the
+    /// suites is covered by `provider_is_fips` in tests/it.rs, which runs under the `fips`
+    /// feature.
+    #[test]
+    fn chacha_is_never_fips_approved() {
+        assert!(!crate::aead::Algorithm::ChaCha20Poly1305.fips());
+    }
+
+    /// AES-GCM must still track OpenSSL, so the check above cannot be satisfied by
+    /// reporting `false` everywhere.
+    #[test]
+    fn aes_gcm_tracks_openssl_fips_state() {
+        let expected = super::fips::enabled();
+        assert_eq!(crate::aead::Algorithm::Aes128Gcm.fips(), expected);
+        assert_eq!(crate::aead::Algorithm::Aes256Gcm.fips(), expected);
+    }
+
+    /// Each AEAD `fips()` impl, called directly.
+    ///
+    /// Not reachable through `SupportedCipherSuite::fips()` outside FIPS mode: rustls
+    /// aggregates with `&&` -- `Tls13CipherSuite::fips()` is
+    /// `common && hkdf && aead_alg && quic` -- and `common.fips()` is
+    /// `crate::fips::enabled()`, so the chain short-circuits on the first term and never
+    /// evaluates these. Without a direct call the reporting this crate exists to fix has
+    /// no coverage in the default configuration.
+    #[test]
+    fn aead_trait_impls_report_fips_directly() {
+        // `Tls12AeadAlgorithm` is implemented in `mod tls12`, which is behind the `tls12`
+        // feature, so the TLS 1.2 half of this test has to be gated the same way.
+        #[cfg(feature = "tls12")]
+        use rustls::crypto::cipher::Tls12AeadAlgorithm;
+        use rustls::crypto::cipher::Tls13AeadAlgorithm;
+
+        let fips = super::fips::enabled();
+        for alg in [
+            crate::aead::Algorithm::Aes128Gcm,
+            crate::aead::Algorithm::Aes256Gcm,
+        ] {
+            #[cfg(feature = "tls12")]
+            assert_eq!(Tls12AeadAlgorithm::fips(&alg), fips, "tls12 {alg:?}");
+            assert_eq!(Tls13AeadAlgorithm::fips(&alg), fips, "tls13 {alg:?}");
+        }
+
+        let chacha = crate::aead::Algorithm::ChaCha20Poly1305;
+        #[cfg(feature = "tls12")]
+        assert!(!Tls12AeadAlgorithm::fips(&chacha));
+        assert!(!Tls13AeadAlgorithm::fips(&chacha));
+    }
+
+    /// Every suite's `fips()` must agree with the one rule: approved exactly when OpenSSL
+    /// is in FIPS mode and the suite is not ChaCha20-Poly1305.
+    ///
+    /// This is the user-visible invariant, and it holds in both states. It does not on its
+    /// own cover the constituent impls -- see above.
+    #[test]
+    fn every_suite_reports_fips_consistently() {
+        let fips = super::fips::enabled();
+        for suite in super::ALL_CIPHER_SUITES {
+            let name = format!("{:?}", suite.suite());
+            let expected = fips && !name.contains("CHACHA20");
+            assert_eq!(
+                suite.fips(),
+                expected,
+                "{name}: fips() should be {expected} (OpenSSL FIPS mode: {fips})"
+            );
+        }
     }
 }

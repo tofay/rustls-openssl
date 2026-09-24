@@ -1,4 +1,9 @@
 //! Integration tests
+//!
+//! Test fixtures only: these deprecated APIs are the simplest way to build a key to test
+//! *with*, and none of this ships. The ban exists for the library itself -- see
+//! clippy.toml.
+#![allow(clippy::disallowed_methods)]
 use crate::server::start_server;
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, EcKey, PointConversionForm};
@@ -186,6 +191,18 @@ fn test_client_and_server(
     #[case] expected: CipherSuite,
 ) {
     if !suite_is_available(suite.suite()) {
+        return;
+    }
+
+    // The X25519 cases above are gated on `not(feature = "fips")`, but that describes how the
+    // crate was built, not what the platform allows. A host in kernel FIPS mode supplies no
+    // X25519 from any provider, so those cases fail there in a default build. Probe the group
+    // instead, as `test_classical_completion` already does.
+    if group.start().is_err() {
+        eprintln!(
+            "skipping: kx group {:?} is unavailable on this platform",
+            group.name()
+        );
         return;
     }
 
@@ -476,4 +493,27 @@ fn provider_is_fips() {
     rustls_openssl::fips::enable();
     let provider = rustls_openssl::default_provider();
     assert!(provider.fips());
+
+    // With OpenSSL actually in FIPS mode, no suite may claim FIPS for an algorithm that is
+    // not approved. ChaCha20-Poly1305 never is, at any provider version.
+    //
+    // This is the case that a unit test cannot cover: outside FIPS mode a buggy
+    // `fips::enabled()` and a correct `false` are indistinguishable, so the regression is
+    // only visible here.
+    //
+    // `ALL_CIPHER_SUITES` rather than the runtime-filtered list on purpose -- in FIPS mode
+    // the ChaCha suites are filtered out of the defaults, but `custom_provider()` lets a
+    // caller select them anyway, and `CryptoProvider::fips()` would then attest to a
+    // provider that is not FIPS-approved.
+    for suite in rustls_openssl::ALL_CIPHER_SUITES {
+        let name = format!("{:?}", suite.suite());
+        if name.contains("CHACHA20") {
+            assert!(
+                !suite.fips(),
+                "{name} reports fips() == true, but ChaCha20-Poly1305 is not FIPS-approved"
+            );
+        } else {
+            assert!(suite.fips(), "{name} should report fips() in FIPS mode");
+        }
+    }
 }

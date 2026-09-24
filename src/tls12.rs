@@ -211,10 +211,7 @@ impl Tls12AeadAlgorithm for aead::Algorithm {
     }
 
     fn fips(&self) -> bool {
-        match self {
-            aead::Algorithm::Aes128Gcm | aead::Algorithm::Aes256Gcm => crate::fips::enabled(),
-            aead::Algorithm::ChaCha20Poly1305 => false,
-        }
+        aead::Algorithm::fips(*self)
     }
 }
 
