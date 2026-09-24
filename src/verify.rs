@@ -416,6 +416,11 @@ mod tests {
     /// must reject anything outside its own allowlist before handing bytes to OpenSSL.
     #[test]
     fn unsupported_key_algorithms_are_rejected() {
+        if crate::fips::enabled() {
+            println!("skipping: FIPS provider rejects secp256k1 outright");
+            return;
+        }
+
         let secp256k1 = OpenSslAlgorithm {
             display_name: "test",
             public_key_alg_id: alg_id::ECDSA_P256K1,
@@ -433,13 +438,9 @@ mod tests {
         assert!(secp256k1.public_key(&payload).is_err());
 
         // The check above is only meaningful if OpenSSL would otherwise have accepted the
-        // key, so assert that too -- but a FIPS provider refuses secp256k1 outright, which
-        // makes the point moot rather than false. Don't fail the test over it.
+        // key, so assert that too.
         let spki = subject_public_key_info(alg_id::ECDSA_P256K1, &payload).unwrap();
-        assert!(
-            PKey::public_key_from_der(&spki).is_ok() || crate::fips::enabled(),
-            "OpenSSL rejected secp256k1 outside FIPS mode; this test proves nothing here"
-        );
+        assert!(PKey::public_key_from_der(&spki).is_ok());
     }
 
     #[test]
