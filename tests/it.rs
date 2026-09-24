@@ -194,6 +194,18 @@ fn test_client_and_server(
         return;
     }
 
+    // The X25519 cases above are gated on `not(feature = "fips")`, but that describes how the
+    // crate was built, not what the platform allows. A host in kernel FIPS mode supplies no
+    // X25519 from any provider, so those cases fail there in a default build. Probe the group
+    // instead, as `test_classical_completion` already does.
+    if group.start().is_err() {
+        eprintln!(
+            "skipping: kx group {:?} is unavailable on this platform",
+            group.name()
+        );
+        return;
+    }
+
     // Run against a server using our default provider
     let (port, certificate, handle) = start_server(alg, None);
     let provider = custom_provider(vec![suite], vec![group]);
