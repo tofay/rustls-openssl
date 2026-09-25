@@ -42,13 +42,14 @@
 //! * SECP384R1
 //! * SECP256R1
 //! * X25519
+//! * SECP521R1
 //! * MLKEM768
 //! * MLKEM1024
 //!
 //! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
 //! MLKEM768, MLKEM1024 and SECP521R1 are not offered by default, but can be used by specifying them in the `custom_provider()` function.
 //!
-//! The default provider includes all of these key exchange groups, filtered based on runtime availability of the algorithm.
+//! The default provider also filters based on runtime availability of the algorithms.
 //! Use [kx_group::available_default_groups()] to get the runtime-available set of default key exchange groups,
 //! and [kx_group::available_groups()] for the runtime-available set of all key exchange groups.
 //!
@@ -340,11 +341,6 @@ pub mod fips {
 mod tests {
     /// ChaCha20-Poly1305 is not FIPS-approved at any provider version, so it must report
     /// `false` regardless of OpenSSL's state.
-    ///
-    /// Asserted on `aead::Algorithm` because that is the single implementation the TLS
-    /// 1.2, TLS 1.3 and QUIC `fips()` impls all delegate to. Keeping three copies of this
-    /// match is what previously let the TLS 1.3 one drift to an unconditional
-    /// `fips::enabled()`, making `TLS13_CHACHA20_POLY1305_SHA256` claim FIPS.
     ///
     /// Note this holds without OpenSSL being in FIPS mode; the FIPS-mode behaviour of the
     /// suites is covered by `provider_is_fips` in tests/it.rs, which runs under the `fips`

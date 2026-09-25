@@ -31,15 +31,21 @@ pub(crate) enum HeaderProtectionAlgorithm {
 }
 
 impl HeaderProtectionAlgorithm {
-    /// Returns `true` when this header protection cipher is FIPS-approved.
-    ///
-    /// ChaCha20 is not approved at any FIPS provider version. AES-ECB is (SP 800-38A), so
-    /// it defers to OpenSSL.
-    fn fips(self) -> bool {
+    fn cipher_kind(self) -> CipherKind {
         match self {
-            Self::Aes128 | Self::Aes256 => crate::fips::enabled(),
-            Self::ChaCha20 => false,
+            Self::Aes128 => CipherKind::Aes128Ecb,
+            Self::Aes256 => CipherKind::Aes256Ecb,
+            Self::ChaCha20 => CipherKind::ChaCha20,
         }
+    }
+
+    fn load(self) -> Result<&'static CipherRef, Error> {
+        self.cipher_kind().load()
+    }
+
+    /// Returns `true` when this header protection cipher is FIPS-approved.
+    fn fips(self) -> bool {
+        self.cipher_kind().fips()
     }
 }
 
@@ -190,17 +196,6 @@ impl quic::HeaderProtectionKey for HeaderProtectionKey {
 
     fn sample_len(&self) -> usize {
         SAMPLE_LEN
-    }
-}
-
-impl HeaderProtectionAlgorithm {
-    fn load(self) -> Result<&'static CipherRef, Error> {
-        let kind = match self {
-            HeaderProtectionAlgorithm::Aes128 => CipherKind::Aes128Ecb,
-            HeaderProtectionAlgorithm::Aes256 => CipherKind::Aes256Ecb,
-            HeaderProtectionAlgorithm::ChaCha20 => CipherKind::ChaCha20,
-        };
-        kind.load()
     }
 }
 
