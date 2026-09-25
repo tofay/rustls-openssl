@@ -76,7 +76,7 @@
 //!
 //! # OpenSSL API Usage
 //!
-//! When targeting OpenSSL 3.0 or later, this crate strictly uses modern, provider APIs (`EVP_*`).
+//! When targeting OpenSSL 3.0 or later this crate uses OpenSSL's provider APIs (`EVP_*`).
 //! Legacy cryptographic interfaces (e.g., direct `HMAC_*` or `RSA_*` functions) are used only when
 //! targeting OpenSSL 1.1.1.
 #![warn(missing_docs)]
@@ -187,9 +187,9 @@ fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
 /// The specified cipher suites and key exchange groups should be defined in descending order of preference.
 /// i.e the first elements have the highest priority during negotiation.
 ///
-/// No runtime filtering is performed on the provided cipher suites and key exchange groups,
-/// so the caller is responsible for ensuring that the provided algorithms are available at runtime,
-/// by calling [available_cipher_suites()] and [kx_group::available_groups()].
+/// No runtime filtering is performed on the provided cipher suites and key exchange groups
+/// so the caller is responsible for ensuring that the provided algorithms are available at runtime.
+/// This can be done by using [available_cipher_suites()] and [kx_group::available_groups()].
 ///
 ///
 /// Sample usage:
