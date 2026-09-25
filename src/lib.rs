@@ -187,7 +187,7 @@ fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
 /// The specified cipher suites and key exchange groups should be defined in descending order of preference.
 /// i.e the first elements have the highest priority during negotiation.
 ///
-/// INo runtime filtering is performed on the provided cipher suites and key exchange groups,
+/// No runtime filtering is performed on the provided cipher suites and key exchange groups,
 /// so the caller is responsible for ensuring that the provided algorithms are available at runtime,
 /// by calling [available_cipher_suites()] and [kx_group::available_groups()].
 ///
