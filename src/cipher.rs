@@ -110,4 +110,9 @@ impl CipherKind {
             })
             .unwrap_or(false)
     }
+
+    pub(crate) fn fips(self) -> bool {
+        // If we can load the cipher in FIPS mode, then it is FIPS-approved.
+        self.is_available() && crate::fips::enabled()
+    }
 }

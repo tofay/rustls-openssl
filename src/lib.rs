@@ -42,13 +42,14 @@
 //! * SECP384R1
 //! * SECP256R1
 //! * X25519
+//! * SECP521R1
 //! * MLKEM768
 //! * MLKEM1024
 //!
 //! If the `prefer-post-quantum` feature is enabled, X25519MLKEM768 will be the first group offered, otherwise it will be the last.
 //! MLKEM768, MLKEM1024 and SECP521R1 are not offered by default, but can be used by specifying them in the `custom_provider()` function.
 //!
-//! The default provider includes all of these key exchange groups, filtered based on runtime availability of the algorithm.
+//! The default provider also filters based on runtime availability of the algorithms.
 //! Use [kx_group::available_default_groups()] to get the runtime-available set of default key exchange groups,
 //! and [kx_group::available_groups()] for the runtime-available set of all key exchange groups.
 //!
@@ -89,6 +90,8 @@ mod prf;
 mod quic;
 mod signer;
 mod spki;
+#[cfg(test)]
+mod test_support;
 #[cfg(feature = "tls12")]
 mod tls12;
 mod tls13;
@@ -307,10 +310,14 @@ pub mod fips {
 
     /// Enable FIPS mode for OpenSSL.
     ///
-    /// This should be called on application startup before the provider is used.
+    /// This function is a convenience helper to programmatically enforce FIPS mode
+    /// on OpenSSL 3.x. Calling this is optional if OpenSSL is already configured
+    /// for FIPS externally (e.g., via `openssl.cnf`, system environment variables,
+    /// or system-wide cryptographic policies).
     ///
+    /// On OpenSSL 3.x, this loads the `fips`, and `base` providers, and sets default
+    /// properties to strictly require `fips=yes`.
     /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
-    /// On OpenSSL 3 this loads a FIPS provider, which must be available.
     ///
     /// Panics if FIPS cannot be enabled
     #[cfg(not(fips_module))]
@@ -319,18 +326,13 @@ pub mod fips {
         use once_cell::sync::OnceCell;
 
         use crate::openssl_internal;
-        static PROVIDER: OnceCell<openssl::provider::Provider> = OnceCell::new();
-        PROVIDER.get_or_init(|| {
-            let provider = openssl::provider::Provider::load(None, "fips")
-                .expect("Failed to load FIPS provider.");
-            unsafe {
-                openssl_internal::cvt(openssl_sys::EVP_default_properties_enable_fips(
-                    std::ptr::null_mut(),
-                    1,
-                ))
-                .expect("Failed to enable FIPS properties.");
-            }
-            provider
+        static LOADED: OnceCell<bool> = OnceCell::new();
+        LOADED.get_or_init(|| {
+            openssl::provider::Provider::load(None, "fips").expect("Failed to load FIPS provider.");
+            openssl::provider::Provider::load(None, "base").expect("Failed to load Base provider.");
+            openssl_internal::set_default_properties("fips=yes")
+                .expect("Failed to set 'fips=yes'.");
+            true
         });
     }
 }
@@ -339,11 +341,6 @@ pub mod fips {
 mod tests {
     /// ChaCha20-Poly1305 is not FIPS-approved at any provider version, so it must report
     /// `false` regardless of OpenSSL's state.
-    ///
-    /// Asserted on `aead::Algorithm` because that is the single implementation the TLS
-    /// 1.2, TLS 1.3 and QUIC `fips()` impls all delegate to. Keeping three copies of this
-    /// match is what previously let the TLS 1.3 one drift to an unconditional
-    /// `fips::enabled()`, making `TLS13_CHACHA20_POLY1305_SHA256` claim FIPS.
     ///
     /// Note this holds without OpenSSL being in FIPS mode; the FIPS-mode behaviour of the
     /// suites is covered by `provider_is_fips` in tests/it.rs, which runs under the `fips`
@@ -411,5 +408,16 @@ mod tests {
                 "{name}: fips() should be {expected} (OpenSSL FIPS mode: {fips})"
             );
         }
+    }
+
+    #[cfg(feature = "fips")]
+    use ctor::ctor;
+
+    // Allows running tests with FIPS enabled.
+    #[cfg(feature = "fips")]
+    #[ctor(unsafe)]
+    fn global_fips_setup() {
+        use crate::fips;
+        fips::enable();
     }
 }

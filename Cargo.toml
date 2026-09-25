@@ -25,6 +25,7 @@ prefer-post-quantum = []
 vendored = ["openssl/vendored"]
 
 [dev-dependencies]
+ctor = "1.0.13"
 hex = "0.4.3"
 rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs"] }
 rstest = "0.26.1"

@@ -1,7 +1,7 @@
 target/
 Cargo.lock
 lcov.info
-openssl-no-chacha/
 fips-vm-report-*.txt
 fips-vm-report-*.log
 target-vm/
+openssl-custom/

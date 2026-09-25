@@ -1,27 +1,27 @@
 //! Integration tests
 //!
-//! Test fixtures only: these deprecated APIs are the simplest way to build a key to test
-//! *with*, and none of this ships. The ban exists for the library itself -- see
-//! clippy.toml.
-#![allow(clippy::disallowed_methods)]
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 use crate::server::start_server;
-use openssl::bn::BigNumContext;
-use openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use openssl::nid::Nid;
-#[cfg(not(feature = "fips"))]
-use openssl::pkey::PKey;
-use openssl::rsa::Rsa;
+use openssl::pkey::{Id, PKey, Private};
+use openssl::pkey_ctx::PkeyCtx;
 use rstest::rstest;
 use rustls::crypto::{CryptoProvider, SupportedKxGroup};
-use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{CipherSuite, SignatureScheme, SupportedCipherSuite};
 use rustls_openssl::{custom_provider, default_provider};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
+use test_support::public_key_payload;
 
 pub mod server;
+
+fn private_key_from_openssl(key: &PKey<Private>) -> PrivateKeyDer<'static> {
+    PrivatePkcs8KeyDer::from(key.private_key_to_pkcs8().unwrap()).into()
+}
 
 fn suite_is_available(suite: CipherSuite) -> bool {
     rustls_openssl::available_cipher_suites()
@@ -34,11 +34,6 @@ fn test_with_provider(
     port: u16,
     root_ca_certs: Vec<CertificateDer<'static>>,
 ) -> CipherSuite {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
     // Add default webpki roots to the root store
     let mut root_store = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -265,11 +260,6 @@ fn test_to_internet(
         return;
     }
 
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
     let cipher_suites = vec![suite];
     let kx_group = vec![group];
 
@@ -346,17 +336,15 @@ static RSA_SIGNING_SCHEMES: &[SignatureScheme] = &[
 
 #[test]
 fn test_rsa_sign_and_verify() {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
-    let private_key = Rsa::generate(2048).unwrap();
-    let rustls_private_key =
-        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem().unwrap()).unwrap();
-    let pub_key = private_key.public_key_to_der_pkcs1().unwrap();
+    let mut ctx = PkeyCtx::new_id(Id::RSA).unwrap();
+    ctx.keygen_init().unwrap();
+    ctx.set_rsa_keygen_bits(2048).unwrap();
+    let private_key = ctx.keygen().unwrap();
+    let rustls_private_key = private_key_from_openssl(&private_key);
+    let pub_key = public_key_payload(&private_key, Id::RSA);
 
     for scheme in RSA_SIGNING_SCHEMES {
         eprintln!("Testing scheme {scheme:?}");
@@ -384,27 +372,19 @@ fn test_rsa_sign_and_verify() {
 #[case::ecdsa_nistp521_sha512(SignatureScheme::ECDSA_NISTP521_SHA512, Nid::SECP521R1)]
 
 fn test_ec_sign_and_verify(#[case] scheme: SignatureScheme, #[case] curve: Nid) {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
     let ours = rustls_openssl::default_provider();
     let theirs = rustls::crypto::aws_lc_rs::default_provider();
 
-    let group = EcGroup::from_curve_name(curve).unwrap();
-
-    let private_key = EcKey::generate(&group).unwrap();
-    let rustls_private_key =
-        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem().unwrap()).unwrap();
+    let mut ctx = PkeyCtx::new_id(Id::EC).unwrap();
+    ctx.keygen_init().unwrap();
+    ctx.set_ec_paramgen_curve_nid(curve).unwrap();
+    let private_key = ctx.keygen().unwrap();
+    let rustls_private_key = private_key_from_openssl(&private_key);
 
     eprintln!("private_key: {rustls_private_key:?}");
 
-    let mut ctx = BigNumContext::new().unwrap();
-    let pub_key = private_key
-        .public_key()
-        // ring doesn't work if PointConversionForm::Compression, aws_lc_rs does
-        .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-        .unwrap();
+    // The OpenSSL-encoded subjectPublicKey is an uncompressed SEC1 point, as required here.
+    let pub_key = public_key_payload(&private_key, Id::EC);
 
     eprintln!("verifying using theirs");
     sign_and_verify(
@@ -433,8 +413,7 @@ fn test_ed25119_sign_and_verify() {
 
     let private_key = PKey::generate_ed25519().unwrap();
     let pub_key = private_key.raw_public_key().unwrap();
-    let rustls_private_key =
-        PrivateKeyDer::from_pem_slice(&private_key.private_key_to_pem_pkcs8().unwrap()).unwrap();
+    let rustls_private_key = private_key_from_openssl(&private_key);
     eprintln!("verifying using theirs");
     sign_and_verify(
         &ours,

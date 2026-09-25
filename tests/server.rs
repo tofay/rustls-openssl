@@ -33,11 +33,6 @@ pub fn start_server(
     alg: Alg,
     provider: Option<CryptoProvider>,
 ) -> (u16, CertificateDer<'static>, std::thread::JoinHandle<()>) {
-    #[cfg(feature = "fips")]
-    {
-        rustls_openssl::fips::enable();
-    }
-
     let pki = TestPki::for_algorithm(alg);
     let ca_cert_der = pki.ca_cert_der.clone();
     let server_config = pki.with_provider(provider.unwrap_or(rustls_openssl::default_provider()));

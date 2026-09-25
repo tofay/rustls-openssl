@@ -355,18 +355,12 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
 
 #[cfg(test)]
 mod tests {
-    // Test fixtures only: these deprecated APIs are the simplest way to build a key to
-    // test *with*, and none of this ships. The ban exists for the library itself --
-    // see clippy.toml.
-    #![allow(clippy::disallowed_methods)]
-
     use super::*;
+    use crate::test_support::public_key_payload;
     use openssl::{
-        bn::BigNumContext,
-        ec::{EcGroup, EcKey, PointConversionForm},
         nid::Nid,
-        pkey::Private,
-        rsa::Rsa,
+        pkey::{Id, Private},
+        pkey_ctx::PkeyCtx,
     };
 
     /// The SPKI we build must be exactly what OpenSSL itself would emit for the same key.
@@ -383,9 +377,11 @@ mod tests {
     #[test]
     fn rsa_spki_matches_openssl() {
         // 2048-bit: the payload is well over 127 bytes, so this covers long-form lengths.
-        let rsa = Rsa::generate(2048).unwrap();
-        let payload = rsa.public_key_to_der_pkcs1().unwrap();
-        let key = PKey::from_rsa(rsa).unwrap();
+        let mut ctx = PkeyCtx::new_id(Id::RSA).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_rsa_keygen_bits(2048).unwrap();
+        let key = ctx.keygen().unwrap();
+        let payload = public_key_payload(&key, Id::RSA);
         assert_spki_matches_openssl(alg_id::RSA_ENCRYPTION, &payload, &key);
     }
 
@@ -394,14 +390,12 @@ mod tests {
     #[case::p384(Nid::SECP384R1, alg_id::ECDSA_P384)]
     #[case::p521(Nid::SECP521R1, alg_id::ECDSA_P521)]
     fn ecdsa_spki_matches_openssl(#[case] nid: Nid, #[case] alg: AlgorithmIdentifier) {
-        let group = EcGroup::from_curve_name(nid).unwrap();
-        let ec = EcKey::generate(&group).unwrap();
-        let mut ctx = BigNumContext::new().unwrap();
-        let payload = ec
-            .public_key()
-            .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-            .unwrap();
-        let key = PKey::from_ec_key(ec).unwrap();
+        let mut ctx = PkeyCtx::new_id(Id::EC).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_ec_paramgen_curve_nid(nid).unwrap();
+        let key = ctx.keygen().unwrap();
+        let payload = public_key_payload(&key, Id::EC);
+
         assert_spki_matches_openssl(alg, &payload, &key);
     }
 
@@ -422,6 +416,11 @@ mod tests {
     /// must reject anything outside its own allowlist before handing bytes to OpenSSL.
     #[test]
     fn unsupported_key_algorithms_are_rejected() {
+        if crate::fips::enabled() {
+            println!("skipping: FIPS provider rejects secp256k1 outright");
+            return;
+        }
+
         let secp256k1 = OpenSslAlgorithm {
             display_name: "test",
             public_key_alg_id: alg_id::ECDSA_P256K1,
@@ -429,25 +428,19 @@ mod tests {
         };
 
         // A well-formed secp256k1 key.
-        let group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
-        let ec = EcKey::generate(&group).unwrap();
-        let mut ctx = BigNumContext::new().unwrap();
-        let payload = ec
-            .public_key()
-            .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
-            .unwrap();
+        let mut ctx = PkeyCtx::new_id(Id::EC).unwrap();
+        ctx.keygen_init().unwrap();
+        ctx.set_ec_paramgen_curve_nid(Nid::SECP256K1).unwrap();
+        let key = ctx.keygen().unwrap();
+        let payload = public_key_payload(&key, Id::EC);
 
         // The allowlist must reject it regardless of what OpenSSL would do with it.
         assert!(secp256k1.public_key(&payload).is_err());
 
         // The check above is only meaningful if OpenSSL would otherwise have accepted the
-        // key, so assert that too -- but a FIPS provider refuses secp256k1 outright, which
-        // makes the point moot rather than false. Don't fail the test over it.
+        // key, so assert that too.
         let spki = subject_public_key_info(alg_id::ECDSA_P256K1, &payload).unwrap();
-        assert!(
-            PKey::public_key_from_der(&spki).is_ok() || crate::fips::enabled(),
-            "OpenSSL rejected secp256k1 outside FIPS mode; this test proves nothing here"
-        );
+        assert!(PKey::public_key_from_der(&spki).is_ok());
     }
 
     #[test]
