@@ -59,8 +59,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustls = { version = "0.23.0", features = ["tls12", "std"], default-features = false }
-//! rustls_openssl = "0.3"
+//! rustls = { version = "0.23", features = ["tls12", "std"], default-features = false }
+//! rustls_openssl = "0.4"
 //! ```
 //!
 //! ### Configuration
@@ -72,7 +72,13 @@
 //! - `tls12`: Enables TLS 1.2 cipher suites. Enabled by default.
 //! - `prefer-post-quantum`: Enables X25519MLKEM768 as the first key exchange group. Enabled by default.
 //! - `vendored`: Enables vendored OpenSSL. Disabled by default.
-//! - `fips`: No longer used.
+//! - `fips`: No longer used. See [fips] for FIPS support.
+//!
+//! # OpenSSL API Usage
+//!
+//! When targeting OpenSSL 3.0 or later, this crate strictly uses modern, provider APIs (`EVP_*`).
+//! Legacy cryptographic interfaces (e.g., direct `HMAC_*` or `RSA_*` functions) are used only when
+//! targeting OpenSSL 1.1.1.
 #![warn(missing_docs)]
 use openssl::rand::rand_priv_bytes;
 use rustls::SupportedCipherSuite;
@@ -181,8 +187,10 @@ fn cipher_suite_available(cipher_suite: &SupportedCipherSuite) -> bool {
 /// The specified cipher suites and key exchange groups should be defined in descending order of preference.
 /// i.e the first elements have the highest priority during negotiation.
 ///
-/// If OpenSSL is running in FIPS mode, non-approved algorithms may be filtered
-/// out by runtime availability checks.
+/// INo runtime filtering is performed on the provided cipher suites and key exchange groups,
+/// so the caller is responsible for ensuring that the provided algorithms are available at runtime,
+/// by calling [available_cipher_suites()] and [kx_group::available_groups()].
+///
 ///
 /// Sample usage:
 /// ```rust
