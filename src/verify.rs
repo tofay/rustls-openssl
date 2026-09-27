@@ -1,8 +1,11 @@
-use crate::spki::subject_public_key_info;
+use crate::{
+    hash::Algorithm,
+    hash::Algorithm::{SHA256, SHA384, SHA512},
+    spki::subject_public_key_info,
+};
 use core::fmt;
 use once_cell::sync::Lazy;
 use openssl::{
-    hash::MessageDigest,
     pkey::{PKey, Public},
     rsa::Padding,
     sign::{RsaPssSaltlen, Verifier},
@@ -241,26 +244,26 @@ impl OpenSslAlgorithm {
         PKey::public_key_from_der(&spki).map_err(|_| InvalidSignature)
     }
 
-    fn message_digest(&self) -> Option<MessageDigest> {
+    fn message_digest(&self) -> Option<Algorithm> {
         match self.signature_alg_id {
             alg_id::RSA_PKCS1_SHA256 | alg_id::ECDSA_SHA256 | alg_id::RSA_PSS_SHA256 => {
-                Some(MessageDigest::sha256())
+                Some(SHA256)
             }
             alg_id::RSA_PKCS1_SHA384 | alg_id::ECDSA_SHA384 | alg_id::RSA_PSS_SHA384 => {
-                Some(MessageDigest::sha384())
+                Some(SHA384)
             }
             alg_id::RSA_PKCS1_SHA512 | alg_id::ECDSA_SHA512 | alg_id::RSA_PSS_SHA512 => {
-                Some(MessageDigest::sha512())
+                Some(SHA512)
             }
             _ => None,
         }
     }
 
-    fn mgf1(&self) -> Option<MessageDigest> {
+    fn mgf1(&self) -> Option<Algorithm> {
         match self.signature_alg_id {
-            alg_id::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
-            alg_id::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
-            alg_id::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
+            alg_id::RSA_PSS_SHA256 => Some(SHA256),
+            alg_id::RSA_PSS_SHA384 => Some(SHA384),
+            alg_id::RSA_PSS_SHA512 => Some(SHA512),
             _ => None,
         }
     }
@@ -323,13 +326,13 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
         }
         let pkey = self.public_key(public_key)?;
 
-        if let Some(message_digest) = self.message_digest() {
-            Verifier::new(message_digest, &pkey).and_then(|mut verifier| {
+        if let Some(algorithm) = self.message_digest() {
+            Verifier::new(algorithm.message_digest(), &pkey).and_then(|mut verifier| {
                 if let Some(padding) = self.rsa_padding() {
                     verifier.set_rsa_padding(padding)?;
                 }
                 if let Some(mgf1_md) = self.mgf1() {
-                    verifier.set_rsa_mgf1_md(mgf1_md)?;
+                    verifier.set_rsa_mgf1_md(mgf1_md.message_digest())?;
                 }
                 if let Some(salt_len) = self.pss_salt_len() {
                     verifier.set_rsa_pss_saltlen(salt_len)?;
@@ -341,10 +344,7 @@ impl SignatureVerificationAlgorithm for OpenSslAlgorithm {
             Verifier::new_without_digest(&pkey)
                 .and_then(|mut verifier| verifier.verify_oneshot(signature, message))
         }
-        .map_err(|e| {
-            std::dbg!(e);
-            InvalidSignature
-        })
+        .map_err(|_| InvalidSignature)
         .and_then(|valid| if valid { Ok(()) } else { Err(InvalidSignature) })
     }
 
