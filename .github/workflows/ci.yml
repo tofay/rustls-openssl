@@ -90,7 +90,13 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: ci/openssl-custom
+          key: openssl-3.2.0-no-chacha-1
+        id: openssl-cache
       - name: Build openssl
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: ./ci/build-openssl-custom.sh
       - name: cargo test
         run: |
@@ -113,7 +119,13 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: ci/openssl-custom
+          key: openssl-3.2.0-no-deprecated-1
+        id: openssl-cache
       - name: Build openssl
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: OPENSSL_CONFIG_FLAGS="no-deprecated" ./ci/build-openssl-custom.sh
       - name: Use rust-openssl fork that compiles with no-deprecated
         run: |
