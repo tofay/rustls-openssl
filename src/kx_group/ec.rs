@@ -11,7 +11,7 @@ use rustls::{Error, NamedGroup};
 use crate::spki::subject_public_key_info;
 
 #[cfg(ossl300)]
-use crate::openssl_internal::kem::PKeyRefExt;
+use crate::openssl_internal::PKeyRefExt as _;
 
 /// `KXGroup`'s that use NIST curves for key exchange.
 #[derive(Debug)]

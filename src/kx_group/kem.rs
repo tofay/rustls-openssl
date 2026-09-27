@@ -1,5 +1,6 @@
 //! Key Encapsulation Mechanism (KEM) key exchange groups.
-use crate::openssl_internal::kem::{PKeyRefExt, PkeyCtxExt, PkeyCtxRefKemExt, PkeyExt};
+use crate::openssl_internal::{PKeyRefExt as _, PkeyCtxExt as _};
+use crate::openssl_internal::kem::{PkeyCtxRefKemExt, PkeyExt};
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private};
 use openssl::pkey_ctx::PkeyCtx;
@@ -49,7 +50,7 @@ struct KeyExchange {
 impl KxGroup {
     /// [KxGroup::start] but returns a concrete `KeyExchange` instead of a trait object.
     fn start_internal(&self) -> Result<KeyExchange, Error> {
-        PkeyCtx::<()>::new_from_name(self.algorithm_name)
+        PkeyCtx::<()>::new_from_name(None, self.algorithm_name)
             .and_then(|mut pkey_ctx| {
                 pkey_ctx.keygen_init()?;
                 let priv_key = pkey_ctx.keygen()?;
@@ -87,7 +88,7 @@ impl SupportedKxGroup for KxGroup {
         &self,
         peer_pub_key: &[u8],
     ) -> Result<rustls::crypto::CompletedKeyExchange, Error> {
-        PKey::from_encoded_public_key(peer_pub_key, self.algorithm_name)
+        PKey::from_encoded_public_key(None, peer_pub_key, self.algorithm_name)
             .and_then(|key| {
                 let mut ctx = PkeyCtx::new(&key)?;
                 ctx.encapsulate_init()?;
@@ -109,7 +110,7 @@ impl SupportedKxGroup for KxGroup {
 impl ActiveKeyExchange for KeyExchange {
     fn complete(self: Box<Self>, peer_pub_key: &[u8]) -> Result<SharedSecret, Error> {
         PkeyCtx::new(&self.priv_key)
-            .and_then(|ctx| {
+            .and_then(|mut ctx| {
                 ctx.decapsulate_init()?;
                 let secret = ctx.decapsulate_to_vec(peer_pub_key)?;
                 Ok(SharedSecret::from(secret.as_slice()))

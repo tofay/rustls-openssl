@@ -93,7 +93,7 @@ impl PKey {
     /// legacy one just to read its curve name.
     #[cfg(ossl300)]
     fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
-        use crate::openssl_internal::kem::PKeyRefExt;
+        use crate::openssl_internal::PKeyRefExt;
         const OSSL_PKEY_PARAM_GROUP_NAME: &[u8] = b"group\0";
 
         let group = self
@@ -340,7 +340,7 @@ mod tests {
     #[cfg(ossl300)]
     #[test]
     fn a_generated_key_signs_with_the_scheme_its_curve_maps_to() {
-        use crate::openssl_internal::kem::{PKeyRefExt, PkeyCtxExt};
+        use crate::openssl_internal::{PKeyRefExt, PkeyCtxExt};
         use openssl::pkey::{PKey, Private};
         use openssl::pkey_ctx::PkeyCtx;
         use rustls::sign::Signer as _;
@@ -359,7 +359,7 @@ mod tests {
                 SignatureScheme::ECDSA_NISTP521_SHA512,
             ),
         ] {
-            let mut ctx = PkeyCtx::<()>::new_from_name(b"EC\0")
+            let mut ctx = PkeyCtx::<()>::new_from_name(None, b"EC\0")
                 .expect("no EC in the configured library context");
             ctx.keygen_init().unwrap();
             ctx.set_ec_paramgen_curve_nid(nid).unwrap();

@@ -338,7 +338,7 @@ pub mod fips {
         LOADED.get_or_init(|| {
             openssl::provider::Provider::load(None, "fips").expect("Failed to load FIPS provider.");
             openssl::provider::Provider::load(None, "base").expect("Failed to load Base provider.");
-            openssl_internal::set_default_properties("fips=yes")
+            openssl_internal::set_default_properties(None, "fips=yes")
                 .expect("Failed to set 'fips=yes'.");
             true
         });
