@@ -8,7 +8,7 @@ use openssl::{
     pkey::{PKey, PKeyRef, Public},
     pkey_ctx::{PkeyCtx, PkeyCtxRef},
 };
-use openssl_sys::{EVP_PKEY, EVP_PKEY_CTX, EVP_PKEY_new, OSSL_LIB_CTX, OSSL_PARAM, c_int};
+use openssl_sys::{EVP_PKEY, EVP_PKEY_CTX, OSSL_LIB_CTX, OSSL_PARAM, c_int};
 
 use super::{cvt, cvt_p};
 
@@ -81,6 +81,8 @@ impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
             ))?;
         }
 
+        out.truncate(out_len);
+        secret.truncate(secret_len);
         Ok((out, secret))
     }
 
@@ -117,6 +119,7 @@ impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
             ))?;
         }
 
+        unwrapped.truncate(unwrapped_len);
         Ok(unwrapped)
     }
 }
@@ -142,9 +145,10 @@ impl PkeyExt for PKey<Public> {
     ) -> Result<Self, ErrorStack> {
         let ctx = PkeyCtx::<()>::new_from_name(algorithm_name)?;
         unsafe {
-            let mut evp = cvt_p(EVP_PKEY_new())?;
+            let mut evp = ptr::null_mut();
             cvt(EVP_PKEY_paramgen_init(ctx.as_ptr()))?;
             cvt(EVP_PKEY_paramgen(ctx.as_ptr(), &mut evp))?;
+            let evp = cvt_p(evp)?;
             cvt(EVP_PKEY_set1_encoded_public_key(
                 evp,
                 encoded_public_key.as_ptr(),
