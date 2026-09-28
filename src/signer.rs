@@ -1,7 +1,9 @@
-use openssl::hash::MessageDigest;
 use openssl::pkey::{Id, Private};
 use openssl::rsa::Padding;
 use openssl::sign::RsaPssSaltlen;
+
+use crate::hash::Algorithm;
+use crate::hash::Algorithm::{SHA256, SHA384, SHA512};
 use rustls::pki_types::{PrivateKeyDer, SubjectPublicKeyInfoDer};
 use rustls::sign::SigningKey;
 use rustls::{Error, SignatureAlgorithm, SignatureScheme};
@@ -42,26 +44,26 @@ fn rsa_padding(scheme: SignatureScheme) -> Option<Padding> {
     }
 }
 
-fn message_digest(scheme: SignatureScheme) -> Option<MessageDigest> {
+fn message_digest(scheme: SignatureScheme) -> Option<Algorithm> {
     match scheme {
         SignatureScheme::RSA_PKCS1_SHA256
         | SignatureScheme::RSA_PSS_SHA256
-        | SignatureScheme::ECDSA_NISTP256_SHA256 => Some(MessageDigest::sha256()),
+        | SignatureScheme::ECDSA_NISTP256_SHA256 => Some(SHA256),
         SignatureScheme::RSA_PKCS1_SHA384
         | SignatureScheme::RSA_PSS_SHA384
-        | SignatureScheme::ECDSA_NISTP384_SHA384 => Some(MessageDigest::sha384()),
+        | SignatureScheme::ECDSA_NISTP384_SHA384 => Some(SHA384),
         SignatureScheme::RSA_PKCS1_SHA512
         | SignatureScheme::RSA_PSS_SHA512
-        | SignatureScheme::ECDSA_NISTP521_SHA512 => Some(MessageDigest::sha512()),
+        | SignatureScheme::ECDSA_NISTP521_SHA512 => Some(SHA512),
         _ => None,
     }
 }
 
-fn mgf1(scheme: SignatureScheme) -> Option<MessageDigest> {
+fn mgf1(scheme: SignatureScheme) -> Option<Algorithm> {
     match scheme {
-        SignatureScheme::RSA_PSS_SHA256 => Some(MessageDigest::sha256()),
-        SignatureScheme::RSA_PSS_SHA384 => Some(MessageDigest::sha384()),
-        SignatureScheme::RSA_PSS_SHA512 => Some(MessageDigest::sha512()),
+        SignatureScheme::RSA_PSS_SHA256 => Some(SHA256),
+        SignatureScheme::RSA_PSS_SHA384 => Some(SHA384),
+        SignatureScheme::RSA_PSS_SHA512 => Some(SHA512),
         _ => None,
     }
 }
@@ -212,14 +214,14 @@ impl SigningKey for PKey {
 
 impl rustls::sign::Signer for Signer {
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, Error> {
-        if let Some(message_digest) = message_digest(self.scheme) {
-            openssl::sign::Signer::new(message_digest, &self.key)
+        if let Some(algorithm) = message_digest(self.scheme) {
+            openssl::sign::Signer::new(algorithm.message_digest(), &self.key)
                 .and_then(|mut signer| {
                     if let Some(padding) = rsa_padding(self.scheme) {
                         signer.set_rsa_padding(padding)?;
                     }
                     if let Some(mgf1) = mgf1(self.scheme) {
-                        signer.set_rsa_mgf1_md(mgf1)?;
+                        signer.set_rsa_mgf1_md(mgf1.message_digest())?;
                     }
                     if let Some(len) = pss_salt_len(self.scheme) {
                         signer.set_rsa_pss_saltlen(len)?;

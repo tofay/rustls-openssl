@@ -15,6 +15,7 @@ pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
 pub(crate) enum Algorithm {
     SHA256,
     SHA384,
+    SHA512,
 }
 
 /// A Hash context using the EVP API.
@@ -31,6 +32,7 @@ impl Algorithm {
         match &self {
             Algorithm::SHA256 => Md::sha256(),
             Algorithm::SHA384 => Md::sha384(),
+            Algorithm::SHA512 => Md::sha512(),
         }
     }
 
@@ -38,6 +40,7 @@ impl Algorithm {
         match &self {
             Algorithm::SHA256 => MessageDigest::sha256(),
             Algorithm::SHA384 => MessageDigest::sha384(),
+            Algorithm::SHA512 => MessageDigest::sha512(),
         }
     }
 }
@@ -64,6 +67,7 @@ impl rustls::crypto::hash::Hash for Algorithm {
         match &self {
             Algorithm::SHA256 => rustls::crypto::hash::HashAlgorithm::SHA256,
             Algorithm::SHA384 => rustls::crypto::hash::HashAlgorithm::SHA384,
+            Algorithm::SHA512 => rustls::crypto::hash::HashAlgorithm::SHA512,
         }
     }
 
