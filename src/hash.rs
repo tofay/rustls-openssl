@@ -43,6 +43,16 @@ impl Algorithm {
             Algorithm::SHA512 => MessageDigest::sha512(),
         }
     }
+
+    /// The name this algorithm is fetched under.
+    #[cfg(ossl300)]
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::SHA256 => "SHA256",
+            Self::SHA384 => "SHA384",
+            Self::SHA512 => "SHA512",
+        }
+    }
 }
 
 impl rustls::crypto::hash::Hash for Algorithm {

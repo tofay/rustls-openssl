@@ -5,48 +5,39 @@ use std::ptr;
 use foreign_types::{ForeignType, ForeignTypeRef};
 use openssl::{
     error::ErrorStack,
-    pkey::{PKey, PKeyRef, Public},
+    lib_ctx::LibCtxRef,
+    pkey::{PKey, Public},
     pkey_ctx::{PkeyCtx, PkeyCtxRef},
 };
-use openssl_sys::{EVP_PKEY, EVP_PKEY_CTX, OSSL_LIB_CTX, OSSL_PARAM, c_int};
+use openssl_sys::{EVP_PKEY, EVP_PKEY_CTX, OSSL_PARAM, c_int};
+
+use super::PkeyCtxExt;
 
 use super::{cvt, cvt_p};
 
 /// Extension trait for [`PkeyCtxRef`] to support key encapsulation mechanism (KEM) operations.
 pub(crate) trait PkeyCtxRefKemExt {
     /// Initializes the encapsulation operation.
-    fn encapsulate_init(&self) -> Result<(), ErrorStack>;
+    fn encapsulate_init(&mut self) -> Result<(), ErrorStack>;
     /// Returns the encapsulated key and the shared secret.
     fn encapsulate_to_vec(&mut self) -> Result<(Vec<u8>, Vec<u8>), ErrorStack>;
     /// Initializes the decapsulation operation.
-    fn decapsulate_init(&self) -> Result<(), ErrorStack>;
+    fn decapsulate_init(&mut self) -> Result<(), ErrorStack>;
     /// Returns the shared secret from the encapsulated key.
     fn decapsulate_to_vec(&self, enc: &[u8]) -> Result<Vec<u8>, ErrorStack>;
-}
-
-pub(crate) trait PkeyCtxExt: Sized {
-    /// Creates a new [`PkeyCtx`] from the algorithm name.
-    /// The algorithm name is a static, null-terminated, string that identifies the algorithm to use.
-    fn new_from_name(name: &'static [u8]) -> Result<Self, ErrorStack>;
 }
 
 pub(crate) trait PkeyExt: Sized {
     /// Creates a new [`PKey`] from an encoded public key for the specified algorithm.
     fn from_encoded_public_key(
+        ctx: Option<&LibCtxRef>,
         encoded_public_key: &[u8],
         algorithm_name: &'static [u8],
     ) -> Result<Self, ErrorStack>;
 }
 
-pub(crate) trait PKeyRefExt {
-    /// Returns the octet string parameter for the specified key name.
-    fn get_octet_string_param(&self, key_name: &[u8]) -> Result<Vec<u8>, ErrorStack>;
-    /// Returns the UTF-8 string parameter for the specified key name.
-    fn get_utf8_string_param(&self, key_name: &[u8]) -> Result<String, ErrorStack>;
-}
-
 impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
-    fn encapsulate_init(&self) -> Result<(), ErrorStack> {
+    fn encapsulate_init(&mut self) -> Result<(), ErrorStack> {
         unsafe {
             cvt(EVP_PKEY_encapsulate_init(self.as_ptr(), ptr::null()))?;
         }
@@ -86,7 +77,7 @@ impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
         Ok((out, secret))
     }
 
-    fn decapsulate_init(&self) -> Result<(), ErrorStack> {
+    fn decapsulate_init(&mut self) -> Result<(), ErrorStack> {
         unsafe {
             cvt(EVP_PKEY_decapsulate_init(self.as_ptr(), ptr::null()))?;
         }
@@ -124,26 +115,13 @@ impl<T> PkeyCtxRefKemExt for PkeyCtxRef<T> {
     }
 }
 
-impl<T> PkeyCtxExt for PkeyCtx<T> {
-    fn new_from_name(name: &'static [u8]) -> Result<Self, ErrorStack> {
-        openssl_sys::init();
-        unsafe {
-            let ptr = cvt_p(EVP_PKEY_CTX_new_from_name(
-                ptr::null_mut(),
-                name.as_ptr().cast(),
-                ptr::null(),
-            ))?;
-            Ok(PkeyCtx::from_ptr(ptr))
-        }
-    }
-}
-
 impl PkeyExt for PKey<Public> {
     fn from_encoded_public_key(
+        ctx: Option<&LibCtxRef>,
         encoded_public_key: &[u8],
         algorithm_name: &'static [u8],
     ) -> Result<Self, ErrorStack> {
-        let ctx = PkeyCtx::<()>::new_from_name(algorithm_name)?;
+        let ctx = PkeyCtx::<()>::new_from_name(ctx, algorithm_name)?;
         unsafe {
             let mut evp = ptr::null_mut();
             cvt(EVP_PKEY_paramgen_init(ctx.as_ptr()))?;
@@ -156,52 +134,6 @@ impl PkeyExt for PKey<Public> {
             ))?;
             Ok(PKey::from_ptr(evp))
         }
-    }
-}
-
-impl<T> PKeyRefExt for PKeyRef<T> {
-    fn get_octet_string_param(&self, key_name: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-        let mut out_len = 0;
-        unsafe {
-            cvt(EVP_PKEY_get_octet_string_param(
-                self.as_ptr(),
-                key_name.as_ptr().cast(),
-                ptr::null_mut(),
-                0,
-                &mut out_len,
-            ))?;
-        }
-
-        let mut out = vec![0; out_len];
-        unsafe {
-            cvt(EVP_PKEY_get_octet_string_param(
-                self.as_ptr(),
-                key_name.as_ptr().cast(),
-                out.as_mut_ptr(),
-                out_len,
-                &mut out_len,
-            ))?;
-        }
-        Ok(out)
-    }
-
-    fn get_utf8_string_param(&self, key_name: &[u8]) -> Result<String, ErrorStack> {
-        // Every parameter read this way (currently only the EC group name) is a short
-        // identifier; OpenSSL fails the call rather than truncating if it does not fit.
-        let mut buf = [0 as c_char; 80];
-        let mut out_len = 0;
-        unsafe {
-            cvt(EVP_PKEY_get_utf8_string_param(
-                self.as_ptr(),
-                key_name.as_ptr().cast(),
-                buf.as_mut_ptr(),
-                buf.len(),
-                &mut out_len,
-            ))?;
-        }
-
-        let bytes: Vec<u8> = buf[..out_len].iter().map(|&c| c as u8).collect();
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
 

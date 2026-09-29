@@ -93,7 +93,7 @@ impl PKey {
     /// legacy one just to read its curve name.
     #[cfg(ossl300)]
     fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
-        use crate::openssl_internal::kem::PKeyRefExt;
+        use crate::openssl_internal::PKeyRefExt;
         const OSSL_PKEY_PARAM_GROUP_NAME: &[u8] = b"group\0";
 
         let group = self
@@ -101,13 +101,7 @@ impl PKey {
             .get_utf8_string_param(OSSL_PKEY_PARAM_GROUP_NAME)
             .ok()?;
 
-        // OpenSSL reports the curve by its short name.
-        match group.as_str() {
-            "prime256v1" | "P-256" => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
-            "secp384r1" | "P-384" => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
-            "secp521r1" | "P-521" => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
-            _ => None,
-        }
+        ecdsa_scheme_for_group(&group)
     }
 
     /// As above, for OpenSSL before 3.0, which has no `OSSL_PARAM` accessors.
@@ -116,12 +110,35 @@ impl PKey {
     /// there is no provider layer to bypass on 1.1.1 in any case.
     #[cfg(not(ossl300))]
     fn ecdsa_scheme(&self) -> Option<SignatureScheme> {
-        match self.0.ec_key().ok()?.group().curve_name()? {
-            openssl::nid::Nid::X9_62_PRIME256V1 => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
-            openssl::nid::Nid::SECP384R1 => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
-            openssl::nid::Nid::SECP521R1 => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
-            _ => None,
-        }
+        ecdsa_scheme_for_nid(self.0.ec_key().ok()?.group().curve_name()?)
+    }
+}
+
+/// The signature scheme this crate signs with for an ECDSA key on the curve OpenSSL reports
+/// under `group`.
+///
+/// `None` for a curve this provider signs with differently, or not at all: an unknown curve has
+/// to be refused here rather than signed with and left for the peer to reject.
+#[cfg(ossl300)]
+fn ecdsa_scheme_for_group(group: &str) -> Option<SignatureScheme> {
+    // OpenSSL reports a curve by its short name; the aliases are the other spellings a
+    // provider is free to report, and both are accepted.
+    match group {
+        "prime256v1" | "P-256" => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
+        "secp384r1" | "P-384" => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
+        "secp521r1" | "P-521" => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
+        _ => None,
+    }
+}
+
+/// As [`ecdsa_scheme_for_group`], for the `NID` OpenSSL before 3.0 names a curve by.
+#[cfg(not(ossl300))]
+fn ecdsa_scheme_for_nid(nid: openssl::nid::Nid) -> Option<SignatureScheme> {
+    match nid {
+        openssl::nid::Nid::X9_62_PRIME256V1 => Some(SignatureScheme::ECDSA_NISTP256_SHA256),
+        openssl::nid::Nid::SECP384R1 => Some(SignatureScheme::ECDSA_NISTP384_SHA384),
+        openssl::nid::Nid::SECP521R1 => Some(SignatureScheme::ECDSA_NISTP521_SHA512),
+        _ => None,
     }
 }
 
@@ -239,5 +256,137 @@ impl rustls::sign::Signer for Signer {
 
     fn scheme(&self) -> SignatureScheme {
         self.scheme
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustls::SignatureScheme;
+
+    /// The curve-name table decides which signature scheme a key is offered under, and an
+    /// entry that is missing or wrong does not fail: `choose_scheme` simply returns `None`,
+    /// and the handshake fails much later with a message about signature schemes.
+    #[cfg(ossl300)]
+    #[test]
+    fn every_curve_name_maps_to_a_scheme() {
+        for (name, expected) in [
+            ("prime256v1", SignatureScheme::ECDSA_NISTP256_SHA256),
+            ("P-256", SignatureScheme::ECDSA_NISTP256_SHA256),
+            ("secp384r1", SignatureScheme::ECDSA_NISTP384_SHA384),
+            ("P-384", SignatureScheme::ECDSA_NISTP384_SHA384),
+            ("secp521r1", SignatureScheme::ECDSA_NISTP521_SHA512),
+            ("P-521", SignatureScheme::ECDSA_NISTP521_SHA512),
+        ] {
+            assert_eq!(
+                ecdsa_scheme_for_group(name),
+                Some(expected),
+                "{name} should map to {expected:?}"
+            );
+        }
+    }
+
+    /// A curve this crate does not sign with has to be refused, including the lookalikes: a
+    /// name that is merely close to a supported one is not that one.
+    #[cfg(ossl300)]
+    #[test]
+    fn unsupported_curve_names_are_refused() {
+        for name in [
+            "secp256k1",  // supported by the verification side, not the signing side
+            "P-256K",     //
+            "prime256v2", // not a curve
+            "brainpoolP256r1",
+            "x25519",     // not an ECDSA curve at all
+            "",           //
+            "PRIME256V1", // matching is case-sensitive
+            " prime256v1",
+            "prime256v1 ",
+            "prime256v1\0",
+        ] {
+            assert_eq!(
+                ecdsa_scheme_for_group(name),
+                None,
+                "{name:?} should not map to a scheme"
+            );
+        }
+    }
+
+    /// The `NID` table has to agree with the name table above: both answer the same question,
+    /// and only one of them is compiled on any given OpenSSL version.
+    #[cfg(not(ossl300))]
+    #[test]
+    fn every_curve_nid_maps_to_a_scheme() {
+        use openssl::nid::Nid;
+
+        assert_eq!(
+            ecdsa_scheme_for_nid(Nid::X9_62_PRIME256V1),
+            Some(SignatureScheme::ECDSA_NISTP256_SHA256)
+        );
+        assert_eq!(
+            ecdsa_scheme_for_nid(Nid::SECP384R1),
+            Some(SignatureScheme::ECDSA_NISTP384_SHA384)
+        );
+        assert_eq!(
+            ecdsa_scheme_for_nid(Nid::SECP521R1),
+            Some(SignatureScheme::ECDSA_NISTP521_SHA512)
+        );
+        for nid in [Nid::SECP256K1, Nid::UNDEF] {
+            assert_eq!(ecdsa_scheme_for_nid(nid), None, "{nid:?} has no scheme");
+        }
+    }
+
+    /// Round trip: a real key's curve name, read through the provider, selects a scheme, and
+    /// what that scheme signs verifies. This is the chain the table sits in.
+    #[cfg(ossl300)]
+    #[test]
+    fn a_generated_key_signs_with_the_scheme_its_curve_maps_to() {
+        use crate::openssl_internal::{PKeyRefExt, PkeyCtxExt};
+        use openssl::pkey::{PKey, Private};
+        use openssl::pkey_ctx::PkeyCtx;
+        use rustls::sign::Signer as _;
+
+        for (nid, expected) in [
+            (
+                openssl::nid::Nid::X9_62_PRIME256V1,
+                SignatureScheme::ECDSA_NISTP256_SHA256,
+            ),
+            (
+                openssl::nid::Nid::SECP384R1,
+                SignatureScheme::ECDSA_NISTP384_SHA384,
+            ),
+            (
+                openssl::nid::Nid::SECP521R1,
+                SignatureScheme::ECDSA_NISTP521_SHA512,
+            ),
+        ] {
+            let mut ctx = PkeyCtx::<()>::new_from_name(None, b"EC\0")
+                .expect("no EC in the configured library context");
+            ctx.keygen_init().unwrap();
+            ctx.set_ec_paramgen_curve_nid(nid).unwrap();
+            let key: PKey<Private> = ctx.keygen().unwrap();
+
+            let key = super::PKey(Arc::new(key));
+            let scheme = key
+                .ecdsa_scheme()
+                .unwrap_or_else(|| panic!("{nid:?} should map to a scheme"));
+            assert_eq!(scheme, expected);
+
+            let message = b"a message to sign";
+            let signature = key.signer(scheme).sign(message).expect("signing failed");
+
+            let public = key.0.get_octet_string_param(b"encoded-pub-key\0").unwrap();
+            let algorithms = crate::verify::SUPPORTED_SIG_ALGS
+                .mapping
+                .iter()
+                .find(|(s, _)| *s == scheme)
+                .map(|(_, v)| *v)
+                .expect("the scheme is in the verification algorithms");
+            assert!(
+                algorithms
+                    .iter()
+                    .any(|alg| alg.verify_signature(&public, message, &signature).is_ok()),
+                "{nid:?} signed a signature nothing accepts"
+            );
+        }
     }
 }
