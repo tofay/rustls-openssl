@@ -49,7 +49,7 @@ impl CipherKind {
 
         let name = self.fetch_name();
         match cache.get_or_init(|| {
-            Cipher::fetch(None, name, None)
+            Cipher::fetch(crate::primed_lib_ctx(), name, None)
                 .map_err(|e| Error::General(format!("Failed to load {name}: {e}")))
         }) {
             Ok(cipher) => Ok(&**cipher),

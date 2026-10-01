@@ -1,5 +1,5 @@
 use crate::aead;
-use crate::hash::{SHA256, SHA384};
+use crate::hash::Algorithm::{SHA256, SHA384};
 use crate::hkdf::Hkdf;
 use crate::quic;
 use rustls::crypto::CipherSuiteCommon;

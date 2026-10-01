@@ -80,16 +80,26 @@
 //! Legacy cryptographic interfaces (e.g., direct `HMAC_*` or `RSA_*` functions) are used only when
 //! targeting OpenSSL 1.1.1.
 #![warn(missing_docs)]
+
+// So that `src/test_support.rs` can name this crate the same way whether it is compiled as
+// part of it or as part of `tests/it.rs`, which includes it with `#[path]`. It forces that
+// file through the public API, which is what makes it usable from both.
+extern crate self as rustls_openssl;
+
+#[cfg(not(ossl300))]
 use openssl::rand::rand_priv_bytes;
 use rustls::SupportedCipherSuite;
 use rustls::crypto::{CryptoProvider, GetRandomFailed, SupportedKxGroup};
 
 mod aead;
 mod cipher;
+pub mod fips;
 mod hash;
 mod hkdf;
 mod hmac;
 pub mod kx_group;
+#[cfg(ossl300)]
+mod lib_ctx;
 mod openssl_internal;
 #[cfg(feature = "tls12")]
 mod prf;
@@ -102,6 +112,16 @@ mod test_support;
 mod tls12;
 mod tls13;
 mod verify;
+
+// The library context and its accessors, re-exported so that this crate's name for them is
+// the same as the `rustls_openssl::…` path the test support module uses.
+#[cfg(ossl300)]
+#[doc(hidden)]
+pub use lib_ctx::get_global_lib_ctx;
+#[cfg(ossl300)]
+pub(crate) use lib_ctx::primed_lib_ctx;
+#[cfg(ossl300)]
+pub use lib_ctx::{LibCtx, LibCtxError, LibCtxRef, set_global_lib_ctx};
 
 pub mod cipher_suite {
     //! Supported cipher suites.
@@ -268,80 +288,19 @@ pub static ALL_CIPHER_SUITES: &[SupportedCipherSuite] = &[
 pub struct SecureRandom;
 
 impl rustls::crypto::SecureRandom for SecureRandom {
+    #[cfg(ossl300)]
+    fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {
+        crate::openssl_internal::rand::priv_bytes(get_global_lib_ctx(), buf)
+            .map_err(|_| GetRandomFailed)
+    }
+
+    #[cfg(not(ossl300))]
     fn fill(&self, buf: &mut [u8]) -> Result<(), GetRandomFailed> {
         rand_priv_bytes(buf).map_err(|_| GetRandomFailed)
     }
 
     fn fips(&self) -> bool {
         fips::enabled()
-    }
-}
-
-pub mod fips {
-    //! # FIPS support
-    //!
-    //! To use rustls with OpenSSL in FIPS mode, perform the following actions.
-    //!
-    //! ## 1. Specify `require_ems` when constructing [rustls::ClientConfig] or [rustls::ServerConfig]
-    //!
-    //! See [rustls documentation](https://docs.rs/rustls/latest/rustls/client/struct.ClientConfig.html#structfield.require_ems) for rationale.
-    //!
-    //! ## 2. Enable FIPS mode for OpenSSL
-    //!
-    //! See [enable()].
-    //!
-    //! ## 3. Validate the FIPS status of your ClientConfig or ServerConfig at runtime
-    //! See [rustls documenation on FIPS](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html#3-validate-the-fips-status-of-your-clientconfigserverconfig-at-run-time).
-
-    /// Returns `true` if OpenSSL is running in FIPS mode.
-    #[cfg(fips_module)]
-    pub(crate) fn enabled() -> bool {
-        openssl::fips::enabled()
-    }
-    #[cfg(not(fips_module))]
-    pub(crate) fn enabled() -> bool {
-        unsafe { openssl_sys::EVP_default_properties_is_fips_enabled(std::ptr::null_mut()) == 1 }
-    }
-
-    /// Enable FIPS mode for OpenSSL.
-    ///
-    /// This should be called on application startup before the provider is used.
-    ///
-    /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
-    /// On OpenSSL 3 this loads a FIPS provider, which must be available.
-    ///
-    /// Panics if FIPS cannot be enabled
-    #[cfg(fips_module)]
-    pub fn enable() {
-        openssl::fips::enable(true).expect("Failed to enable FIPS mode.");
-    }
-
-    /// Enable FIPS mode for OpenSSL.
-    ///
-    /// This function is a convenience helper to programmatically enforce FIPS mode
-    /// on OpenSSL 3.x. Calling this is optional if OpenSSL is already configured
-    /// for FIPS externally (e.g., via `openssl.cnf`, system environment variables,
-    /// or system-wide cryptographic policies).
-    ///
-    /// On OpenSSL 3.x, this loads the `fips`, and `base` providers, and sets default
-    /// properties to strictly require `fips=yes`.
-    /// On OpenSSL 1.1.1 this calls [FIPS_mode_set](https://wiki.openssl.org/index.php/FIPS_mode_set()).
-    ///
-    /// Panics if FIPS cannot be enabled
-    #[cfg(not(fips_module))]
-    pub fn enable() {
-        // Use OnceCell to ensure that the provider is only loaded once
-        use once_cell::sync::OnceCell;
-
-        use crate::openssl_internal;
-        static LOADED: OnceCell<bool> = OnceCell::new();
-        LOADED.get_or_init(|| {
-            openssl::provider::Provider::load(None, "fips").expect("Failed to load FIPS provider.");
-            openssl::provider::Provider::load(None, "base").expect("Failed to load Base provider.");
-            openssl_internal::set_default_properties("fips=yes")
-                .expect("Failed to set 'fips=yes'.");
-            true
-        });
     }
 }
 
@@ -418,14 +377,67 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "fips")]
+    #[cfg(all(feature = "ossl-context", ossl300))]
+    #[test]
+    fn secure_random_fills_from_the_global_lib_ctx() {
+        use rustls::crypto::SecureRandom as _;
+
+        assert!(
+            crate::get_global_lib_ctx().is_some(),
+            "the `ossl-context` feature is on but no global context was set, so this test \
+             proved nothing"
+        );
+
+        // The premise: the default context is restricted to a provider that does not exist, so
+        // a random source that ignored the context and used the default one would fail here.
+        // Without this the "not all zeros" assert below would pass either way.
+        let mut from_default = [0u8; 32];
+        assert!(
+            openssl::rand::rand_priv_bytes(&mut from_default).is_err(),
+            "the default library context is not canaried, so this test cannot tell the two \
+             apart"
+        );
+
+        let mut buf = [0u8; 32];
+        crate::SecureRandom
+            .fill(&mut buf)
+            .expect("failed to get random bytes from the global library context");
+        assert!(buf.iter().any(|byte| *byte != 0), "all-zero random bytes");
+    }
+
+    /// The rest of this module's context-sensitive tests only mean anything if the constructor
+    /// ran and the canary is really in place.
+    #[cfg(all(feature = "ossl-context", ossl300))]
+    #[test]
+    fn the_global_lib_ctx_canary_is_in_place() {
+        assert!(
+            crate::get_global_lib_ctx().is_some(),
+            "the `ossl-context` feature is on but no global library context was set"
+        );
+        assert!(
+            openssl::cipher::Cipher::fetch(None, "AES-128-GCM", None).is_err(),
+            "the default library context can still fetch a cipher, so it is not canaried and \
+             the context-sensitive tests here prove nothing"
+        );
+    }
+
+    // Allows running tests with FIPS enabled, and against a custom library context.
+    #[cfg(any(feature = "fips", feature = "ossl-context"))]
     use ctor::ctor;
 
-    // Allows running tests with FIPS enabled.
-    #[cfg(feature = "fips")]
+    /// Puts the test suite in the same position as an application that has configured its
+    /// own library context, and enables FIPS mode if it was asked for.
+    ///
+    /// `tests/it.rs` has the same constructor, for the same reason: the canary is only worth
+    /// something if the code that would violate it is exercised in the same process.
+    #[cfg(any(feature = "fips", feature = "ossl-context"))]
     #[ctor(unsafe)]
-    fn global_fips_setup() {
-        use crate::fips;
-        fips::enable();
+    fn global_lib_ctx_setup() {
+        #[cfg(all(feature = "ossl-context", ossl300))]
+        crate::set_global_lib_ctx(crate::test_support::global_lib_ctx())
+            .expect("the global library context has already been set");
+
+        #[cfg(feature = "fips")]
+        crate::fips::enable();
     }
 }

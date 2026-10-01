@@ -20,8 +20,14 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
+      # Two runs, because they test different things. The default run exercises the code
+      # against the default library context; the `ossl-context` run installs a library
+      # context and restricts the default one to a provider that does not exist, so anything
+      # that quietly uses the default context fails. Neither subsumes the other.
       - name: cargo test
         run: cargo test --features vendored
+      - name: cargo test (library context)
+        run: cargo test --features vendored,ossl-context
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
         run: cargo test --doc --features vendored
@@ -42,6 +48,8 @@ jobs:
       # the FIPS module. See src/hash.rs's provider-routing test for why that matters.
       - run: cargo clippy --features vendored --all-targets -- -D warnings
       - run: cargo clippy --features vendored --no-default-features --all-targets -- -D warnings
+      # The test-only features compile code no other job here lints.
+      - run: cargo clippy --features vendored,ossl-context --all-targets -- -D warnings
       # Catches the same functions declared as raw FFI, which clippy cannot see.
       - name: No deprecated OpenSSL APIs
         run: ./ci/check-deprecated-apis.sh
@@ -76,10 +84,34 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
-      - name: Ensure AES test fails when FIPS module is not enabled
+      # The suite must not pass when the FIPS provider cannot be loaded: `fips::enable()`
+      # panics if it cannot, and that has to fail the run rather than leave the process
+      # quietly outside the validated module. This image *does* ship the module, so pointing
+      # OPENSSL_MODULES at an empty directory is what makes the check mean anything.
+      - name: Ensure the suite fails when the FIPS module is unavailable
         run: |
-          ! cargo test aes_available --features fips
+          mkdir -p /tmp/no-fips-module
+          ! OPENSSL_MODULES=/tmp/no-fips-module cargo test aes_available --features fips
       - run: OPENSSL_FORCE_FIPS_MODE=1 cargo test --features fips -- --test-threads=1
+
+  test-fips-openssl-3-libctx:
+    name: Test FIPS with an application-supplied library context
+    runs-on: ubuntu-latest
+    container:
+      image: registry.access.redhat.com/ubi9/ubi:latest
+    steps:
+      - name: Install dependencies
+        run: dnf install -y gcc openssl-devel
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      # `fips::enable()` behaves differently once a global library context is set: it loads the
+      # providers into *that* context and sets `fips=yes` there, and `fips::enabled()` reads it
+      # back from there. That combination is the one an application supplying its own context
+      # ends up in, and neither FIPS job above runs it.
+      - run: OPENSSL_FORCE_FIPS_MODE=1 cargo test --features fips,ossl-context -- --test-threads=1
 
   test-no-chacha:
     name: Test using OpenSSL without ChaCha

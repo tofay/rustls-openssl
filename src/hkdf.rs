@@ -1,6 +1,9 @@
 use crate::hash::Algorithm as HashAlgorithm;
 use crate::hmac::Hmac;
+#[cfg(ossl300)]
+use crate::openssl_internal::PkeyCtxExt as _;
 use openssl::error::ErrorStack;
+#[cfg(not(ossl300))]
 use openssl::pkey::Id;
 use openssl::pkey_ctx::{HkdfMode, PkeyCtx, PkeyCtxRef};
 use rustls::crypto::hash::Hash as _;
@@ -10,7 +13,24 @@ use rustls::crypto::tls13::{
 };
 use zeroize::Zeroize;
 
-const MAX_MD_SIZE: usize = openssl_sys::EVP_MAX_MD_SIZE as usize;
+#[cfg(ossl300)]
+use crate::openssl_internal::MAX_MD_SIZE;
+
+#[cfg(not(ossl300))]
+use crate::openssl_internal::MAX_MD_SIZE;
+
+/// A context to derive the HKDF in.
+#[cfg(ossl300)]
+fn new_ctx() -> Result<PkeyCtx<()>, ErrorStack> {
+    PkeyCtx::<()>::new_from_name(crate::get_global_lib_ctx(), b"HKDF\0")
+}
+
+/// As above, for OpenSSL before 3.0, which identifies the HKDF by `NID` and has one context
+/// to derive in. The rest of the derivation is the same `EVP_PKEY_CTX_ctrl` calls either way.
+#[cfg(not(ossl300))]
+fn new_ctx() -> Result<PkeyCtx<()>, ErrorStack> {
+    PkeyCtx::new_id(Id::HKDF)
+}
 
 /// HKDF implementation using HMAC with the specified Hash Algorithm
 pub(crate) struct Hkdf(pub(crate) HashAlgorithm);
@@ -28,6 +48,8 @@ impl RustlsHkdf for Hkdf {
         self.extract_from_secret(salt, &secret[..hash_size])
     }
 
+    /// RFC 5869 extract, which OpenSSL 3.0 and later do as a KDF of their own, in the global
+    /// library context. Before that it is spelled out below, over the crate's HMAC.
     fn extract_from_secret(
         &self,
         salt: Option<&[u8]>,
@@ -35,11 +57,11 @@ impl RustlsHkdf for Hkdf {
     ) -> Box<dyn RustlsHkdfExpander> {
         let hash_size = self.0.output_len();
         let mut private_key = [0u8; MAX_MD_SIZE];
-        PkeyCtx::new_id(Id::HKDF)
+        new_ctx()
             .and_then(|mut ctx| {
                 ctx.derive_init()?;
                 ctx.set_hkdf_mode(HkdfMode::EXTRACT_ONLY)?;
-                ctx.set_hkdf_md(self.0.mdref())?;
+                ctx.set_hkdf_md(self.0.mdref()?)?;
                 ctx.set_hkdf_key(secret)?;
                 if let Some(salt) = salt {
                     ctx.set_hkdf_salt(salt)?;
@@ -49,7 +71,7 @@ impl RustlsHkdf for Hkdf {
                 ctx.derive(Some(&mut private_key[..hash_size]))?;
                 Ok(())
             })
-            .expect("HDKF-Extract failed");
+            .expect("HKDF-Extract failed");
 
         Box::new(HkdfExpander {
             private_key,
@@ -80,11 +102,11 @@ impl RustlsHkdf for Hkdf {
 
 impl RustlsHkdfExpander for HkdfExpander {
     fn expand_slice(&self, info: &[&[u8]], output: &mut [u8]) -> Result<(), OutputLengthError> {
-        PkeyCtx::new_id(Id::HKDF)
+        new_ctx()
             .and_then(|mut ctx| {
                 ctx.derive_init()?;
                 ctx.set_hkdf_mode(HkdfMode::EXPAND_ONLY)?;
-                ctx.set_hkdf_md(self.hash.mdref())?;
+                ctx.set_hkdf_md(self.hash.mdref()?)?;
                 ctx.set_hkdf_key(&self.private_key[..self.size])?;
                 add_hkdf_info(&mut ctx, info)?;
                 ctx.derive(Some(output))?;
@@ -98,7 +120,7 @@ impl RustlsHkdfExpander for HkdfExpander {
         let len = self.hash_len();
 
         self.expand_slice(info, &mut output[..len])
-            .expect("HDKF-Expand failed");
+            .expect("HKDF-Expand failed");
         OkmBlock::new(&output[..len])
     }
 
@@ -146,8 +168,6 @@ mod test {
 
         for test_group in test_set.test_groups {
             for test in test_group.tests {
-                dbg!(&test);
-
                 let prk_expander = hkdf.extract_from_secret(Some(&test.salt), &test.ikm);
 
                 let mut okm = vec![0; test.size];
@@ -158,10 +178,7 @@ mod test {
                         assert!(res.is_ok());
                         assert_eq!(okm[..], test.okm[..], "Failed test: {}", test.comment);
                     }
-                    TestResult::Invalid => {
-                        dbg!(&res);
-                        assert!(res.is_err(), "Failed test: {}", test.comment)
-                    }
+                    TestResult::Invalid => assert!(res.is_err(), "Failed test: {}", test.comment),
                 }
             }
         }

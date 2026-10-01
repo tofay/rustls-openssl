@@ -1,8 +1,15 @@
 //! Util for creating test servers, adapted from https://github.com/rustls/rustls/blob/20de56876d8bc45224c351339337c61126c1c954/provider-example/examples/server.rs#L58
+// This file is also built as its own (empty) test target, where `it.rs` -- and with it the
+// copy of `test_support` this module would otherwise reach through `super::` -- is not
+// present. So it includes its own, and the two copies in the `it` binary are the same file
+// compiled twice.
+#[allow(clippy::duplicate_mod)]
+#[path = "../src/test_support.rs"]
+mod test_support;
+
 use std::io::Write;
 use std::sync::Arc;
 
-use openssl::pkey::PKey;
 use rcgen::SignatureAlgorithm;
 use rustls::ServerConfig;
 use rustls::crypto::CryptoProvider;
@@ -132,9 +139,9 @@ impl TestPki {
 
 fn generate_for(alg: Alg) -> rcgen::KeyPair {
     if alg == Alg::PKCS_ED25519 {
-        // use openssl as openssl doesn't support the PKCS8v2 format which
-        // rcgen/ring produces: https://github.com/openssl/openssl/issues/10468
-        let key = PKey::generate_ed25519().unwrap();
+        // OpenSSL, because it doesn't support the PKCS#8 v2 format which rcgen/ring produces:
+        // https://github.com/openssl/openssl/issues/10468
+        let (key, _) = test_support::ed25519_key_pair();
         let pem = key.private_key_to_pkcs8().unwrap();
         let key = PrivatePkcs8KeyDer::from(&pem[..]);
 

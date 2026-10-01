@@ -19,10 +19,12 @@ zeroize = "1.8.1"
 
 [features]
 default = ["tls12", "prefer-post-quantum"]
-fips = []
 tls12 = ["rustls/tls12"]
 prefer-post-quantum = []
 vendored = ["openssl/vendored"]
+# Test only
+fips = [] # Causes FIPS to be enabled before all tests
+ossl-context = [] # Causes a non-default library context to be configured
 
 [dev-dependencies]
 ctor = "1.0.13"
@@ -37,5 +39,6 @@ wycheproof = { version = "0.6.0", default-features = false, features = [
     "aead",
     "hkdf",
     "ecdh",
+    "ecdsa",
     "xdh",
 ] }

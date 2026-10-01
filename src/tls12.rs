@@ -1,5 +1,5 @@
 use crate::aead::{self, TAG_LEN};
-use crate::hash::{SHA256, SHA384};
+use crate::hash::Algorithm::{SHA256, SHA384};
 use crate::prf::Prf;
 use crate::signer::RSA_SCHEMES;
 use rustls::crypto::KeyExchangeAlgorithm;

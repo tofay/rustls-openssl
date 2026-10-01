@@ -1,5 +1,6 @@
 //! OpenSSL PRF bindings
-//! https://github.com/sfackler/rust-openssl/pull/2329
+//!
+//! Based on <https://github.com/sfackler/rust-openssl/pull/2329>.
 use core::ffi::c_void;
 use foreign_types::ForeignTypeRef;
 use openssl::{error::ErrorStack, md::MdRef, pkey_ctx::PkeyCtxRef};
@@ -72,11 +73,24 @@ unsafe fn EVP_PKEY_CTX_add1_tls1_prf_seed(
     }
 }
 
-pub(crate) fn set_tls1_prf_secret<T>(
-    ctx: &mut PkeyCtxRef<T>,
-    secret: &[u8],
-) -> Result<(), openssl::error::ErrorStack> {
-    let len = c_int::try_from(secret.len()).unwrap();
+/// The length argument of the `EVP_PKEY_CTRL_TLS_*` calls, which are `int` rather than `size_t`.
+///
+/// A PRF secret or seed is a hash output or a transcript fragment, so this cannot overflow in
+/// practice; it is checked rather than assumed because a `usize` from a peer would otherwise
+/// be truncated silently.
+fn ctrl_len(bytes: &[u8]) -> Result<c_int, ErrorStack> {
+    c_int::try_from(bytes.len()).map_err(|_| ErrorStack::get())
+}
+
+// These take `&PkeyCtxRef`, not `&mut`, even though `EVP_PKEY_CTX_ctrl` mutates the context.
+// rust-openssl declares `PkeyCtx<T>` as unconditionally `Send + Sync` for every `T`, so a
+// `&mut` here is a `&mut` that the compiler will happily let another thread alias: two
+// threads could then push PSKs into one context's TLS1-PRF state at once, and the state is
+// freed with the context. `&` does not prevent sharing either, but it matches the
+// `PkeyCtxRef<()>` the caller actually owns, keeps this honest about the intent, and avoids
+// handing out a mutable alias of a type that is already `Sync`.
+pub(crate) fn set_tls1_prf_secret<T>(ctx: &PkeyCtxRef<T>, secret: &[u8]) -> Result<(), ErrorStack> {
+    let len = ctrl_len(secret)?;
 
     unsafe {
         cvt(EVP_PKEY_CTX_set1_tls1_prf_secret(
@@ -89,11 +103,8 @@ pub(crate) fn set_tls1_prf_secret<T>(
     Ok(())
 }
 
-pub(crate) fn add_tls1_prf_seed<T>(
-    ctx: &mut PkeyCtxRef<T>,
-    seed: &[u8],
-) -> Result<(), openssl::error::ErrorStack> {
-    let len = c_int::try_from(seed.len()).unwrap();
+pub(crate) fn add_tls1_prf_seed<T>(ctx: &PkeyCtxRef<T>, seed: &[u8]) -> Result<(), ErrorStack> {
+    let len = ctrl_len(seed)?;
 
     unsafe {
         cvt(EVP_PKEY_CTX_add1_tls1_prf_seed(
@@ -106,10 +117,7 @@ pub(crate) fn add_tls1_prf_seed<T>(
     Ok(())
 }
 
-pub(crate) fn set_tls1_prf_md<T>(
-    ctx: &mut PkeyCtxRef<T>,
-    digest: &MdRef,
-) -> Result<(), ErrorStack> {
+pub(crate) fn set_tls1_prf_md<T>(ctx: &PkeyCtxRef<T>, digest: &MdRef) -> Result<(), ErrorStack> {
     unsafe {
         cvt(EVP_PKEY_CTX_set_tls1_prf_md(ctx.as_ptr(), digest.as_ptr()))?;
     }

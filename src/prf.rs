@@ -1,13 +1,32 @@
 use crate::hash::Algorithm;
+#[cfg(ossl300)]
+use crate::openssl_internal::PkeyCtxExt as _;
 use crate::openssl_internal::prf::{add_tls1_prf_seed, set_tls1_prf_md, set_tls1_prf_secret};
-use openssl::{pkey::Id, pkey_ctx::PkeyCtx};
+use openssl::error::ErrorStack;
+#[cfg(not(ossl300))]
+use openssl::pkey::Id;
+use openssl::pkey_ctx::PkeyCtx;
 use rustls::crypto::ActiveKeyExchange;
 use std::boxed::Box;
 
 pub(crate) struct Prf(pub(crate) Algorithm);
 
 // https://github.com/openssl/openssl/blob/21f6c3b4fb35af03e1fedb3fc15d68846ed2235b/include/openssl/obj_mac.h#L5471
+#[cfg(not(ossl300))]
 const NID_TLS1_PRF: i32 = 1021;
+
+/// A context to derive the PRF in.
+#[cfg(ossl300)]
+fn new_ctx() -> Result<PkeyCtx<()>, ErrorStack> {
+    PkeyCtx::<()>::new_from_name(crate::get_global_lib_ctx(), b"TLS1-PRF\0")
+}
+
+/// As above, for OpenSSL before 3.0, which identifies the PRF by `NID` and has one context to
+/// derive in. The rest of the derivation is the same `EVP_PKEY_CTX_ctrl` calls either way.
+#[cfg(not(ossl300))]
+fn new_ctx() -> Result<PkeyCtx<()>, ErrorStack> {
+    PkeyCtx::new_id(Id::from_raw(NID_TLS1_PRF))
+}
 
 impl rustls::crypto::tls12::Prf for Prf {
     fn for_key_exchange(
@@ -24,17 +43,21 @@ impl rustls::crypto::tls12::Prf for Prf {
     }
 
     fn for_secret(&self, output: &mut [u8], secret: &[u8], label: &[u8], seed: &[u8]) {
-        PkeyCtx::new_id(Id::from_raw(NID_TLS1_PRF))
-            .and_then(|mut ctx| {
+        // `for_secret` cannot report an error -- that is the trait's signature -- so the fetch
+        // failure is propagated into the same `expect` as everything else rather than being
+        // reported as a successful-but-empty PRF.
+        new_ctx()
+            .and_then(|ctx| {
+                let mut ctx = ctx;
                 ctx.derive_init()?;
-                set_tls1_prf_md(&mut ctx, self.0.mdref())?;
-                set_tls1_prf_secret(&mut ctx, secret)?;
-                add_tls1_prf_seed(&mut ctx, label)?;
-                add_tls1_prf_seed(&mut ctx, seed)?;
+                set_tls1_prf_md(&ctx, self.0.mdref().expect("EVP_MD_fetch failed"))?;
+                set_tls1_prf_secret(&ctx, secret)?;
+                add_tls1_prf_seed(&ctx, label)?;
+                add_tls1_prf_seed(&ctx, seed)?;
                 ctx.derive(Some(output))?;
                 Ok(())
             })
-            .expect("HDKF-Extract failed");
+            .expect("TLS 1.2 PRF failed");
     }
 
     fn fips(&self) -> bool {
@@ -47,7 +70,7 @@ impl rustls::crypto::tls12::Prf for Prf {
 mod test {
     use rustls::crypto::tls12::Prf as _;
 
-    use super::super::hash::{SHA256, SHA384};
+    use super::super::hash::Algorithm::{SHA256, SHA384};
 
     use super::Prf;
 

@@ -3,12 +3,14 @@
 //! Digests must go through `EVP_MD`/`EVP_MD_CTX` rather than the low-level `SHA256_Init`
 //! family: only the EVP calls are dispatched through OpenSSL's provider layer, so only they
 //! reach the FIPS provider when it is in use.
+#[cfg(ossl300)]
+use std::sync::OnceLock;
+
+use foreign_types::ForeignTypeRef;
+use openssl::error::ErrorStack;
 use openssl::hash::{Hasher, MessageDigest};
 use openssl::md::{Md, MdRef};
 use rustls::crypto::hash::Output;
-
-pub(crate) static SHA256: Algorithm = Algorithm::SHA256;
-pub(crate) static SHA384: Algorithm = Algorithm::SHA384;
 
 /// Supported Hash algorithms.
 #[derive(Clone, Copy, Debug)]
@@ -28,20 +30,95 @@ impl Clone for Context {
 }
 
 impl Algorithm {
-    pub(crate) fn mdref(self) -> &'static MdRef {
-        match &self {
-            Algorithm::SHA256 => Md::sha256(),
-            Algorithm::SHA384 => Md::sha384(),
-            Algorithm::SHA512 => Md::sha512(),
+    /// The `EVP_MD` for this algorithm, from the global library context's providers on
+    /// OpenSSL 3.0 and later, and from the library's built-in digests before that.
+    ///
+    /// Returns an error if the digest is unavailable.
+    pub(crate) fn mdref(self) -> Result<&'static MdRef, ErrorStack> {
+        self.load()
+    }
+
+    /// As [`Self::mdref`], as a `MessageDigest` for the digest APIs.
+    fn try_message_digest(self) -> Result<MessageDigest, ErrorStack> {
+        // Safe because `load` caches the `EVP_MD` in a `static`, so the pointer is valid for
+        // the rest of the process.
+        Ok(unsafe { MessageDigest::from_ptr(self.mdref()?.as_ptr()) })
+    }
+
+    /// As [`Self::try_message_digest`], panicking if the digest is unavailable.
+    ///
+    /// Only for the infallible `rustls::crypto::hash::Hash` methods, whose signatures leave
+    /// nowhere to report a failure.
+    pub(crate) fn message_digest(self) -> MessageDigest {
+        self.try_message_digest().expect("EVP_MD_fetch failed")
+    }
+
+    /// Hash `data`, via the provider layer.
+    ///
+    /// For the signature operations that are not the digest API:
+    /// see [`crate::signer`] and [`crate::verify`].
+    pub(crate) fn digest(self, data: &[u8]) -> Result<Output, ErrorStack> {
+        let mut hasher = Hasher::new(self.try_message_digest()?)?;
+        hasher.update(data)?;
+        Ok(Output::new(&hasher.finish()?))
+    }
+
+    /// The name this algorithm is fetched under.
+    #[cfg(ossl300)]
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::SHA256 => "SHA256",
+            Self::SHA384 => "SHA384",
+            Self::SHA512 => "SHA512",
         }
     }
 
-    pub(crate) fn message_digest(self) -> MessageDigest {
-        match &self {
-            Algorithm::SHA256 => MessageDigest::sha256(),
-            Algorithm::SHA384 => MessageDigest::sha384(),
-            Algorithm::SHA512 => MessageDigest::sha512(),
+    /// The digest's output length, which is a property of the algorithm and not of whatever
+    /// providers happen to be loaded.
+    ///
+    /// Deliberately does not fetch: this is called from the infallible parts of the `Hash`
+    /// trait and from `Hkdf`/`Hmac`, and turning an unavailable digest into a panic there
+    /// would be worse than the length we already know.
+    pub(crate) fn output_size(self) -> usize {
+        match self {
+            Self::SHA256 => 32,
+            Self::SHA384 => 48,
+            Self::SHA512 => 64,
         }
+    }
+
+    /// The digest's `NID`, which is how OpenSSL before 3.0 names it.
+    #[cfg(not(ossl300))]
+    fn nid(self) -> openssl::nid::Nid {
+        match self {
+            Self::SHA256 => openssl::nid::Nid::SHA256,
+            Self::SHA384 => openssl::nid::Nid::SHA384,
+            Self::SHA512 => openssl::nid::Nid::SHA512,
+        }
+    }
+
+    /// Fetch the `EVP_MD` once, and cache it: the fetch outlives every use, since the
+    /// cache is a `static`.
+    #[cfg(ossl300)]
+    fn load(self) -> Result<&'static MdRef, ErrorStack> {
+        static SHA256: OnceLock<Result<Md, ErrorStack>> = OnceLock::new();
+        static SHA384: OnceLock<Result<Md, ErrorStack>> = OnceLock::new();
+        static SHA512: OnceLock<Result<Md, ErrorStack>> = OnceLock::new();
+
+        let cache = match self {
+            Self::SHA256 => &SHA256,
+            Self::SHA384 => &SHA384,
+            Self::SHA512 => &SHA512,
+        };
+        match cache.get_or_init(|| Md::fetch(crate::primed_lib_ctx(), self.name(), None)) {
+            Ok(md) => Ok(&**md),
+            Err(e) => Err(e.clone()),
+        }
+    }
+
+    #[cfg(not(ossl300))]
+    fn load(self) -> Result<&'static MdRef, ErrorStack> {
+        Md::from_nid(self.nid()).ok_or_else(ErrorStack::get)
     }
 }
 
@@ -60,7 +137,7 @@ impl rustls::crypto::hash::Hash for Algorithm {
     }
 
     fn output_len(&self) -> usize {
-        self.message_digest().size()
+        Algorithm::output_size(*self)
     }
 
     fn algorithm(&self) -> rustls::crypto::hash::HashAlgorithm {
@@ -99,7 +176,7 @@ impl rustls::crypto::hash::Context for Context {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHA256, SHA384};
+    use super::Algorithm::{SHA256, SHA384};
     use rustls::crypto::hash::Hash as _;
 
     // Known-answer vectors from FIPS 180-4.
@@ -214,7 +291,7 @@ mod tests {
     ///
     /// Implemented as a subprocess because `OPENSSL_CONF` is read once, when OpenSSL
     /// initialises.
-    #[cfg(ossl300)]
+    #[cfg(all(ossl300, not(feature = "ossl-context")))]
     #[test]
     fn digests_are_dispatched_through_the_provider_layer() {
         use std::io::Write as _;

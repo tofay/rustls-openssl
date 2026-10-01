@@ -2,7 +2,9 @@ use openssl::derive::Deriver;
 use openssl::ec::EcGroup;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
-use openssl::pkey::{Id, PKey, Private, Public};
+#[cfg(not(ossl300))]
+use openssl::pkey::Id;
+use openssl::pkey::{PKey, Private, Public};
 use openssl::pkey_ctx::PkeyCtx;
 use rustls::crypto::{ActiveKeyExchange, SharedSecret, SupportedKxGroup};
 use rustls::pki_types::{AlgorithmIdentifier, alg_id};
@@ -11,7 +13,7 @@ use rustls::{Error, NamedGroup};
 use crate::spki::subject_public_key_info;
 
 #[cfg(ossl300)]
-use crate::openssl_internal::kem::PKeyRefExt;
+use crate::openssl_internal::{PKeyRefExt as _, PkeyCtxExt as _};
 
 /// `KXGroup`'s that use NIST curves for key exchange.
 #[derive(Debug)]
@@ -52,12 +54,23 @@ pub const SECP521R1: &dyn SupportedKxGroup = &EcKxGroup {
     alg_id: alg_id::ECDSA_P521,
 };
 
-/// Generate an ephemeral keypair on the curve `nid`, via `EVP_PKEY_keygen`.
+/// Generate an ephemeral keypair on the curve `nid`.
 ///
 /// Generation must go through EVP rather than `EC_KEY_generate_key`: only the EVP path is
 /// dispatched through OpenSSL's provider layer, so only it runs inside the FIPS provider --
 /// and so gets that provider's SP 800-56A generation path and its pairwise consistency test --
 /// when one is in use.
+#[cfg(ossl300)]
+fn generate(nid: Nid) -> Result<PKey<Private>, ErrorStack> {
+    let mut ctx = PkeyCtx::<()>::new_from_name(crate::get_global_lib_ctx(), b"EC\0")?;
+    ctx.keygen_init()?;
+    ctx.set_ec_paramgen_curve_nid(nid)?;
+    ctx.keygen()
+}
+
+/// As above, for OpenSSL before 3.0, which names key types by `NID` and has no provider
+/// layer to dispatch through.
+#[cfg(not(ossl300))]
 fn generate(nid: Nid) -> Result<PKey<Private>, ErrorStack> {
     let mut ctx = PkeyCtx::new_id(Id::EC)?;
     ctx.keygen_init()?;
@@ -112,20 +125,27 @@ impl SupportedKxGroup for EcKxGroup {
     }
 }
 
+/// Import a DER-encoded `SubjectPublicKeyInfo` in the global library context.
+#[cfg(ossl300)]
+fn import_public_key(spki: &[u8]) -> Result<PKey<Public>, ErrorStack> {
+    use crate::openssl_internal::PKeyPublicExt;
+    PKey::<Public>::public_key_from_der_ex(crate::get_global_lib_ctx(), spki, None)
+}
+
+/// As above, for OpenSSL before 3.0, which has neither `OSSL_LIB_CTX` nor `d2i_PUBKEY_ex`.
+#[cfg(not(ossl300))]
+fn import_public_key(spki: &[u8]) -> Result<PKey<Public>, ErrorStack> {
+    PKey::public_key_from_der(spki)
+}
+
 impl EcKeyExchange {
-    /// Import the peer's key share, via `d2i_PUBKEY`.
-    ///
-    /// Import must go through EVP rather than `EC_POINT_oct2point` + `EC_KEY_set_public_key`:
-    /// only the EVP path is dispatched through OpenSSL's provider layer, so only it gets the
-    /// provider's own key import and validation -- including the FIPS provider's, when one is
-    /// in use. The decoder rejects points that are not on the curve, which is what the
-    /// `EC_KEY_check_key` call it replaces was for.
+    /// Import the peer's key share, via `d2i_PUBKEY_ex`.
     fn load_peer_key(&self, peer_pub_key: &[u8]) -> Result<PKey<Public>, Error> {
         let spki = subject_public_key_info(self.alg_id, peer_pub_key).ok_or(
             Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare),
         )?;
 
-        PKey::public_key_from_der(&spki)
+        import_public_key(&spki)
             .map_err(|_| Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare))
     }
 }
@@ -190,8 +210,8 @@ mod test {
         out.extend_from_slice(value);
     }
 
-    /// Import a test vector's private scalar through OpenSSL's modern decoder.
-    fn private_key_from_scalar(alg_id: &AlgorithmIdentifier, scalar: &[u8]) -> PKey<Private> {
+    /// A test vector's private scalar, as the PKCS#8 `PrivateKeyInfo` wrapping it.
+    fn private_key_info(alg_id: &AlgorithmIdentifier, scalar: &[u8]) -> Vec<u8> {
         // RFC 5915 ECPrivateKey. Its publicKey field is optional; OpenSSL reconstructs the
         // public point from the scalar while importing the key.
         let mut ec_private_key_contents = Vec::new();
@@ -201,14 +221,34 @@ mod test {
         push_der_value(&mut ec_private_key, 0x30, &ec_private_key_contents);
 
         // RFC 5208 PrivateKeyInfo. The provider-backed decoder imports this form without
-        // relying on the legacy, key-specific EC private-key decoder.
+        // relying on the legacy, key-specific EC private-key decoder, which the older
+        // `d2i_AutoPrivateKey` path has no way to reach.
         let mut pkcs8 = Vec::new();
         push_der_value(&mut pkcs8, 0x02, &[0]);
         push_der_value(&mut pkcs8, 0x30, alg_id.as_ref());
         push_der_value(&mut pkcs8, 0x04, &ec_private_key);
         let mut der = Vec::with_capacity(pkcs8.len() + 4);
         push_der_value(&mut der, 0x30, &pkcs8);
-        PKey::private_key_from_pkcs8(&der).unwrap()
+        der
+    }
+
+    /// Import a test vector's private scalar through OpenSSL's modern decoder.
+    #[cfg(ossl300)]
+    fn private_key_from_scalar(alg_id: &AlgorithmIdentifier, scalar: &[u8]) -> PKey<Private> {
+        use crate::openssl_internal::PKeyPrivateExt;
+        PKey::<Private>::private_key_from_der_ex(
+            crate::get_global_lib_ctx(),
+            &private_key_info(alg_id, scalar),
+            None,
+        )
+        .unwrap()
+    }
+
+    /// As above, for OpenSSL before 3.0: the PKCS#8 decoder is the library's own, and reads
+    /// the same structure.
+    #[cfg(not(ossl300))]
+    fn private_key_from_scalar(alg_id: &AlgorithmIdentifier, scalar: &[u8]) -> PKey<Private> {
+        PKey::private_key_from_pkcs8(&private_key_info(alg_id, scalar)).unwrap()
     }
 
     #[rstest::rstest]
